@@ -12,3 +12,6 @@ taskbar_boundary.png
 # IDE
 .vscode/
 .idea/
+*.bak
+shelf_files.json
+notes.txt
