@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <!-- Glowing Idea Bulb on Antenna -->
+        <line x1="50" y1="20" x2="50" y2="12" stroke="#D9653B" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="50" cy="8" r="7" fill="#FBBF24"/>
+        <path d="M47 3 L53 3 M44 5 L46 7 M56 7 L54 5" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"/>
+        <!-- Head -->
+        <rect x="20" y="22" width="60" height="48" rx="18" fill="#FFFFFF" stroke="#E6E0D8" stroke-width="2"/>
+        <!-- Screen Face -->
+        <rect x="26" y="28" width="48" height="36" rx="12" fill="#181715"/>
+        <!-- Thinking Squinting Eyes looking up -->
+        <ellipse cx="40" cy="40" rx="4" ry="5" fill="#F59E0B"/>
+        <ellipse cx="60" cy="40" rx="4" ry="5" fill="#F59E0B"/>
+        <!-- Cute Thinking Eyebrows -->
+        <line x1="34" y1="33" x2="44" y2="36" stroke="#F59E0B" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="56" y1="36" x2="66" y2="33" stroke="#F59E0B" stroke-width="2.5" stroke-linecap="round"/>
+        <!-- Hand on Chin -->
+        <circle cx="56" cy="66" r="6" fill="#FFFFFF" stroke="#E6E0D8" stroke-width="2"/>
+        <path d="M42 56 Q50 60 56 56" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"/>
+    </svg>
