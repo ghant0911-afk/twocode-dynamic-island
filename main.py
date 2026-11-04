@@ -2207,6 +2207,7 @@ class SettingsTabWidget(QWidget):
     """Settings: Mascot selection, sound, reset position."""
     mascot_changed = pyqtSignal(str)
     sound_toggled = pyqtSignal(bool)
+    topmost_toggled = pyqtSignal(bool)
     reset_pos_requested = pyqtSignal()
     bluetooth_test_requested = pyqtSignal()
 
@@ -2279,6 +2280,30 @@ class SettingsTabWidget(QWidget):
         self.sound_btn.clicked.connect(self.toggle_sound)
         s_row.addWidget(self.sound_btn)
         layout.addLayout(s_row)
+
+        # Always on Top Toggle
+        top_row = QHBoxLayout()
+        top_lbl = QLabel("Поверх всех окон (Always on top):")
+        top_lbl.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 600;")
+        top_row.addWidget(top_lbl)
+        top_row.addStretch()
+
+        self.top_btn = QPushButton("ВКЛ (Поверх)")
+        self.top_btn.setFixedSize(110, 24)
+        self.top_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.top_btn.setStyleSheet("""
+            QPushButton {
+                background: #38BDF8;
+                color: #000000;
+                font-size: 9px;
+                font-weight: 800;
+                border-radius: 6px;
+                border: none;
+            }
+        """)
+        self.top_btn.clicked.connect(self.toggle_topmost)
+        top_row.addWidget(self.top_btn)
+        layout.addLayout(top_row)
 
         # Bluetooth Pop-up Test
         bt_row = QHBoxLayout()
@@ -2363,6 +2388,22 @@ class SettingsTabWidget(QWidget):
         """)
         self.sound_toggled.emit(new_state)
 
+    def toggle_topmost(self):
+        is_on = "ВКЛ" in self.top_btn.text()
+        new_state = not is_on
+        self.top_btn.setText("ВКЛ (Поверх)" if new_state else "ВЫКЛ (Сзади)")
+        self.top_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {"#38BDF8" if new_state else "#252730"};
+                color: {"#000000" if new_state else "#8E8E93"};
+                font-size: 9px;
+                font-weight: 800;
+                border-radius: 6px;
+                border: none;
+            }}
+        """)
+        self.topmost_toggled.emit(new_state)
+
 
 class BottomDock(QFrame):
     """Sleek iOS frosted glass pill dock for tab navigation."""
@@ -2434,6 +2475,17 @@ class BottomDock(QFrame):
                     }
                 """)
         self.tab_selected.emit(index)
+
+class AutoSizingStackedWidget(QStackedWidget):
+    """StackedWidget that sizes dynamically to its active child widget."""
+    def minimumSizeHint(self):
+        curr = self.currentWidget()
+        return curr.minimumSizeHint() if curr else QSize(0, 0)
+
+    def sizeHint(self):
+        curr = self.currentWidget()
+        return curr.sizeHint() if curr else QSize(0, 0)
+
 
 # ==============================================================================
 # MAIN WINDOW: TWOCODE DYNAMIC ISLAND PRO (NUSA & VAYLI & TAMAGOTCHI)
@@ -2520,7 +2572,7 @@ class TwoCodeIsland(QWidget):
         container_layout.setSpacing(4)
 
         # Main Stack: Collapsed Pill (0), Expanded Island (1), Bluetooth Dropdown (2)
-        self.main_stack = QStackedWidget()
+        self.main_stack = AutoSizingStackedWidget()
 
         # ----------------------------------------------------------------------
         # PAGE 0: COLLAPSED COMPACT NOTCH
@@ -2612,6 +2664,7 @@ class TwoCodeIsland(QWidget):
         self.settings_widget = SettingsTabWidget()
         self.settings_widget.mascot_changed.connect(self.on_mascot_changed)
         self.settings_widget.sound_toggled.connect(self.on_sound_toggled)
+        self.settings_widget.topmost_toggled.connect(self.set_always_on_top)
         self.settings_widget.reset_pos_requested.connect(self.reset_to_center)
         self.settings_widget.bluetooth_test_requested.connect(lambda: self.show_bluetooth_popup({"name": "Baseus Encok WM01", "battery": 79}))
         self.tab_stack.addWidget(self.settings_widget)
@@ -2676,15 +2729,14 @@ class TwoCodeIsland(QWidget):
 
     def get_target_coords(self, target_w, target_h):
         if self.custom_x is not None and self.custom_y is not None:
-            curr_center_x = self.pos().x() + (self.width() // 2)
-            new_x = curr_center_x - (target_w // 2)
+            new_x = self.custom_x
             new_y = self.custom_y
             return new_x, new_y
 
         screen = self.get_active_screen()
         geom = screen.geometry()
         x = geom.left() + (geom.width() - target_w) // 2
-        y = 44 if geom.top() == 0 else (geom.top() + 4)
+        y = geom.top()  # Snug directly to the top edge bezel!
         return x, y
 
     def mousePressEvent(self, event):
@@ -2740,6 +2792,8 @@ class TwoCodeIsland(QWidget):
     def expand(self):
         self.is_expanded = True
         self.is_bt_showing = False
+        self.setMinimumSize(self.EXPANDED_W, self.EXPANDED_H)
+        self.setMaximumSize(self.EXPANDED_W, self.EXPANDED_H)
         self.main_stack.setCurrentWidget(self.expanded_widget)
         self.update_style()
 
@@ -2751,12 +2805,14 @@ class TwoCodeIsland(QWidget):
         self.anim.setEndValue(target_rect)
         self.anim.start()
         self.show()
-        make_window_topmost(int(self.winId()))
+        self.update_topmost()
 
     def collapse(self):
         self.is_expanded = False
         self.is_bt_showing = False
         self.main_stack.setCurrentWidget(self.pill_widget)
+        self.setMinimumSize(self.COLLAPSED_W, self.COLLAPSED_H)
+        self.setMaximumSize(self.COLLAPSED_W, self.COLLAPSED_H)
         self.update_style()
 
         tx, ty = self.get_target_coords(self.COLLAPSED_W, self.COLLAPSED_H)
@@ -2767,12 +2823,14 @@ class TwoCodeIsland(QWidget):
         self.anim.setEndValue(target_rect)
         self.anim.start()
         self.show()
-        make_window_topmost(int(self.winId()))
+        self.update_topmost()
 
     def set_collapsed_geometry(self, animate=False):
         self.is_expanded = False
         self.is_bt_showing = False
         self.main_stack.setCurrentWidget(self.pill_widget)
+        self.setMinimumSize(self.COLLAPSED_W, self.COLLAPSED_H)
+        self.setMaximumSize(self.COLLAPSED_W, self.COLLAPSED_H)
         self.update_style()
 
         tx, ty = self.get_target_coords(self.COLLAPSED_W, self.COLLAPSED_H)
@@ -2787,7 +2845,18 @@ class TwoCodeIsland(QWidget):
             self.setGeometry(target_rect)
 
         self.show()
-        make_window_topmost(int(self.winId()))
+        self.update_topmost()
+
+    def update_topmost(self):
+        if getattr(self, "always_on_top", True):
+            make_window_topmost(int(self.winId()))
+        else:
+            user32.SetWindowPos(int(self.winId()), -2, 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0040)
+
+    def set_always_on_top(self, enabled):
+        self.always_on_top = enabled
+        self.save_config()
+        self.update_topmost()
 
     def show_bluetooth_popup(self, data):
         self.is_expanded = False
@@ -2896,6 +2965,11 @@ class TwoCodeIsland(QWidget):
         act_bt = menu.addAction("ᛒ Тест Bluetooth Pop-up")
         act_bt.triggered.connect(lambda: self.show_bluetooth_popup({"name": "Baseus Encok WM01", "battery": 79}))
 
+        act_top = menu.addAction("📌 Поверх всех окон")
+        act_top.setCheckable(True)
+        act_top.setChecked(self.always_on_top)
+        act_top.triggered.connect(self.set_always_on_top)
+
         act_feed = menu.addAction("🍪 Покормить Нусу")
         act_feed.triggered.connect(self.mascot_room.feed_pet)
 
@@ -2934,12 +3008,14 @@ class TwoCodeIsland(QWidget):
 
     # Configuration persistence
     def load_config(self):
+        self.always_on_top = True
         if os.path.exists(CONFIG_PATH):
             try:
                 with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                     self.sound_enabled = cfg.get("sound_enabled", True)
                     self.mascot_type = cfg.get("mascot_type", "nusa")
+                    self.always_on_top = cfg.get("always_on_top", True)
                     self.custom_x = cfg.get("pos_x", None)
                     self.custom_y = cfg.get("pos_y", None)
             except Exception:
@@ -2950,6 +3026,7 @@ class TwoCodeIsland(QWidget):
             cfg = {
                 "sound_enabled": self.sound_enabled,
                 "mascot_type": self.mascot_type,
+                "always_on_top": getattr(self, "always_on_top", True),
                 "pos_x": self.custom_x,
                 "pos_y": self.custom_y
             }
