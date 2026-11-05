@@ -145,8 +145,11 @@ bridge = BridgeSignals()
 
 
 # =========================================================================
-# ASYNC TEXT-TO-SPEECH VOICE ENGINE (WINDOWS NATIVE SAPI5)
+# ASYNC NEURAL TEXT-TO-SPEECH VOICE ENGINE (SILERO NEURAL BAYA 48KHZ)
 # =========================================================================
+import hashlib
+import pygame
+
 class VoiceEngine:
     _instance = None
 
@@ -159,30 +162,35 @@ class VoiceEngine:
     def __init__(self):
         self.enabled = True
         self.is_speaking = False
-        self.sapi = None
-        self._init_sapi()
+        self.cache_dir = os.path.join(APP_DIR, "voice_cache")
+        os.makedirs(self.cache_dir, exist_ok=True)
+        self.tts = None
+        self._init_mixer()
+        threading.Thread(target=self._init_silero, daemon=True).start()
 
-    def _init_sapi(self):
-        if not HAS_SAPI:
-            return
+    def _init_mixer(self):
         try:
-            self.sapi = win32com.client.Dispatch("SAPI.SpVoice")
-            for v in self.sapi.GetVoices():
-                desc = v.GetDescription()
-                if "Irina" in desc or "Russian" in desc:
-                    self.sapi.Voice = v
-                    break
-            self.sapi.Rate = 2  # Youthful, lively pace
-            self.sapi.Volume = 100
+            if not pygame.mixer.get_init():
+                pygame.mixer.init(frequency=48000)
         except Exception:
-            self.sapi = None
+            pass
+
+    def _init_silero(self):
+        try:
+            from silero_tts.silero_tts import SileroTTS
+            self.tts = SileroTTS(
+                model_id='v4_ru',
+                language='ru',
+                speaker='baya',
+                sample_rate=48000,
+                put_accent=True,
+                put_yo=True
+            )
+        except Exception:
+            self.tts = None
 
     def speak(self, text):
         if not self.enabled or not text:
-            return
-        if self.sapi is None:
-            self._init_sapi()
-        if self.sapi is None:
             return
 
         # Clean markdown/code/urls/tags for smooth natural speech
@@ -194,26 +202,57 @@ class VoiceEngine:
         if not clean:
             return
 
-        try:
-            # SVSFlagsAsync = 1, SVSFPurgeBeforeSpeak = 2 -> 3
-            self.sapi.Speak(clean, 3)
-            self.is_speaking = True
-            bridge.speaking_state_changed.emit(True)
+        h = hashlib.md5(clean.lower().encode('utf-8')).hexdigest()[:12]
+        cache_file = os.path.join(self.cache_dir, f"baya_{h}.wav")
 
-            def _poll_done():
+        def _play_file(filepath):
+            try:
+                self._init_mixer()
+                pygame.mixer.music.load(filepath)
+                pygame.mixer.music.play()
+                self.is_speaking = True
+                bridge.speaking_state_changed.emit(True)
+
+                while pygame.mixer.music.get_busy():
+                    time.sleep(0.04)
+            except Exception:
+                pass
+            finally:
+                self.is_speaking = False
+                bridge.speaking_state_changed.emit(False)
+
+        def _worker():
+            # 1. Instant playback from pre-generated cache
+            if os.path.exists(cache_file):
+                _play_file(cache_file)
+                return
+
+            # 2. Dynamic neural synthesis for new phrases
+            if self.tts is None:
+                self._init_silero()
+
+            if self.tts:
                 try:
-                    time.sleep(0.08)
-                    while self.sapi and self.sapi.Status.RunningState == 2:
-                        time.sleep(0.05)
+                    self.tts.tts(clean, cache_file)
+                    _play_file(cache_file)
+                    return
                 except Exception:
                     pass
-                finally:
-                    self.is_speaking = False
-                    bridge.speaking_state_changed.emit(False)
 
-            threading.Thread(target=_poll_done, daemon=True).start()
-        except Exception:
-            pass
+            # 3. Fallback to SAPI only if neural fails
+            try:
+                if HAS_SAPI:
+                    sapi = win32com.client.Dispatch("SAPI.SpVoice")
+                    self.is_speaking = True
+                    bridge.speaking_state_changed.emit(True)
+                    sapi.Speak(clean, 0)
+            except Exception:
+                pass
+            finally:
+                self.is_speaking = False
+                bridge.speaking_state_changed.emit(False)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
 
 # =========================================================================
@@ -428,6 +467,13 @@ class IslandAPIHandler(BaseHTTPRequestHandler):
             IslandAPIHandler.decision_event.set()
             bridge.decision_made.emit(decision)
             self._send_json(200, {"success": True, "decision": decision})
+        elif path in ['/speak', '/say', '/api/speak']:
+            msg = payload.get('text') or payload.get('message') or payload.get('say')
+            if msg:
+                VoiceEngine.get().speak(msg)
+                self._send_json(200, {"success": True, "spoken": msg})
+            else:
+                self._send_json(400, {"error": "Missing text"})
         else:
             self._send_json(404, {"error": "Not Found"})
 
