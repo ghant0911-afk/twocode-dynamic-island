@@ -159,46 +159,61 @@ class VoiceEngine:
     def __init__(self):
         self.enabled = True
         self.is_speaking = False
+        self.sapi = None
+        self._init_sapi()
 
-    def speak(self, text, on_start=None, on_done=None):
-        if not self.enabled or not text or not HAS_SAPI:
-            if on_done:
-                on_done()
+    def _init_sapi(self):
+        if not HAS_SAPI:
+            return
+        try:
+            self.sapi = win32com.client.Dispatch("SAPI.SpVoice")
+            for v in self.sapi.GetVoices():
+                desc = v.GetDescription()
+                if "Irina" in desc or "Russian" in desc:
+                    self.sapi.Voice = v
+                    break
+            self.sapi.Rate = 2  # Youthful, lively pace
+            self.sapi.Volume = 100
+        except Exception:
+            self.sapi = None
+
+    def speak(self, text):
+        if not self.enabled or not text:
+            return
+        if self.sapi is None:
+            self._init_sapi()
+        if self.sapi is None:
             return
 
-        def _worker():
-            try:
-                self.is_speaking = True
-                bridge.speaking_state_changed.emit(True)
-                if on_start:
-                    on_start()
+        # Clean markdown/code/urls/tags for smooth natural speech
+        clean = re.sub(r'[*_`#~\[\]()>]', ' ', text)
+        clean = re.sub(r'https?://\S+', 'ссылка', clean)
+        clean = re.sub(r'<\/?b>|<\/?i>|<\/?br>|<\/?p>', ' ', clean)
+        clean = re.sub(r'[^\w\s\.,!\?\-—]', ' ', clean)
+        clean = re.sub(r'\s+', ' ', clean).strip()
+        if not clean:
+            return
 
-                # Clean markdown/code/urls for smooth natural speech
-                clean = re.sub(r'[*_`#~\[\]()>]', ' ', text)
-                clean = re.sub(r'https?://\S+', 'ссылка', clean)
-                clean = re.sub(r'<\/?b>|<\/?i>|<\/?br>', ' ', clean)
-                clean = re.sub(r'\s+', ' ', clean).strip()
+        try:
+            # SVSFlagsAsync = 1, SVSFPurgeBeforeSpeak = 2 -> 3
+            self.sapi.Speak(clean, 3)
+            self.is_speaking = True
+            bridge.speaking_state_changed.emit(True)
 
-                pythoncom.CoInitialize()
-                sapi = win32com.client.Dispatch("SAPI.SpVoice")
-                for v in sapi.GetVoices():
-                    desc = v.GetDescription()
-                    if "Irina" in desc or "Russian" in desc:
-                        sapi.Voice = v
-                        break
-                sapi.Rate = 2  # Youthful, lively pace
-                sapi.Volume = 100
-                sapi.Speak(clean, 0)
-                pythoncom.CoUninitialize()
-            except Exception:
-                pass
-            finally:
-                self.is_speaking = False
-                bridge.speaking_state_changed.emit(False)
-                if on_done:
-                    on_done()
+            def _poll_done():
+                try:
+                    time.sleep(0.08)
+                    while self.sapi and self.sapi.Status.RunningState == 2:
+                        time.sleep(0.05)
+                except Exception:
+                    pass
+                finally:
+                    self.is_speaking = False
+                    bridge.speaking_state_changed.emit(False)
 
-        threading.Thread(target=_worker, daemon=True).start()
+            threading.Thread(target=_poll_done, daemon=True).start()
+        except Exception:
+            pass
 
 
 # =========================================================================
@@ -920,12 +935,12 @@ class TwoCodeIsland(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         # COMPACT DROPLET COLLAPSED DIMENSIONS (Sleek pill with live Robo!):
-        self.COLLAPSED_W = 118
-        self.COLLAPSED_H = 26
+        self.COLLAPSED_W = 142
+        self.COLLAPSED_H = 36
 
         # EXPANDED DIMENSIONS:
         self.EXPANDED_W = 440
-        self.EXPANDED_H = 136
+        self.EXPANDED_H = 146
 
         # State
         self.is_expanded = False
@@ -1199,7 +1214,7 @@ class TwoCodeIsland(QWidget):
         elif self.current_state == "heart":
             border_color = "rgba(255, 105, 180, 0.5)"
 
-        radius = "16px" if self.is_expanded else "13px"
+        radius = "16px" if self.is_expanded else "18px"
         self.container.setStyleSheet(f"""
             QFrame#IslandContainer {{
                 background-color: #11100F;
@@ -1209,31 +1224,31 @@ class TwoCodeIsland(QWidget):
         """)
 
     # ==============================================================
-    # 1. COMPACT DROPLET (118x26 px) WITH LIVE ANIMATED ROBO
+    # 1. COMPACT DROPLET (142x36 px) WITH LIVE ANIMATED ROBO
     # ==============================================================
     def create_pill_widget(self):
         w = QWidget()
         w.setCursor(Qt.CursorShape.SizeAllCursor)
         w.setFixedHeight(self.COLLAPSED_H)
         layout = QHBoxLayout(w)
-        layout.setContentsMargins(6, 0, 8, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(8, 0, 10, 0)
+        layout.setSpacing(7)
 
-        # 1. Live Animated Robo with full emotion palette (20px)
-        self.pill_robo = LiveAnimatedRobo(size=20)
-        self.pill_robo.setFixedSize(20, 20)
+        # 1. Live Animated Robo with full emotion palette (28px - clear & visible!)
+        self.pill_robo = LiveAnimatedRobo(size=28)
+        self.pill_robo.setFixedSize(28, 28)
         self.pill_robo.mousePressEvent = self.on_robo_poke
         self.pill_robo.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(self.pill_robo)
 
         # 2. Glowing Status Dot
         self.pill_dot = QLabel("●")
-        self.pill_dot.setStyleSheet("color: #30D158; font-size: 8px;")
+        self.pill_dot.setStyleSheet("color: #30D158; font-size: 9px;")
         layout.addWidget(self.pill_dot)
 
         # 3. Status text
         self.pill_text = QLabel("Antigravity")
-        self.pill_text.setStyleSheet("color: #B5B1AA; font-size: 10px; font-weight: 600;")
+        self.pill_text.setStyleSheet("color: #CFCBC4; font-size: 11px; font-weight: 600;")
         layout.addWidget(self.pill_text)
 
         layout.addStretch()
@@ -1755,15 +1770,31 @@ class TwoCodeIsland(QWidget):
         self.last_user_activity = time.time()
         play_chime("heart")
         self.cycle_emotion_manual()
-        if random.random() < 0.45 and hasattr(self, 'voice') and not self.voice.is_speaking:
-            pokes = [
-                "Ой! Щекотно!",
-                "Привет! Я с тобой!",
-                "Люблю, когда ты нажимаешь!",
-                "Всегда на связи!",
-                "Слушаю тебя во все ушки!"
-            ]
-            self.voice.speak(random.choice(pokes))
+        m = LiveAnimatedRobo.EMOTIONS_LIST[self.emotion_idx]
+
+        phrases = {
+            "love": "Я тебя люблю! Любовь в каждом пикселе!",
+            "star": "Мы сияем ярче всех звёзд!",
+            "cool": "Посмотри, какие стильные очки!",
+            "music": "Обожаю музыку! Потанцуем под ритм?",
+            "puppy": "Ну пожалуйста! Я же такая милая!",
+            "happy": "Какое прекрасное настроение!",
+            "wink": "Лови игривое подмигивание!",
+            "curious": "Хм, очень интересно! Что там новенького?",
+            "thinking": "Загружаю новую гениальную мысль!",
+            "gaming": "Готова к ретро-играм! В бой!",
+            "sleepy": "Кажется, пора немного вздремнуть... сладких снов!",
+            "grumpy": "Ой, я сегодня сердитая!",
+            "shy": "Ой, ты меня смущаешь!",
+            "shocked": "Ого! Вот это поворот!",
+            "dizzy": "Ой-ой, голова кружится!",
+            "reading": "Сканирую код и файлы проекта!",
+            "sad": "Немножко грустно, но ты со мной!",
+            "idle": "Привет! Я тут, слежу за порядком!"
+        }
+        speech = phrases.get(m, f"Эмоция {m}!")
+        if hasattr(self, 'voice'):
+            self.voice.speak(speech)
 
     def on_speaking_changed(self, is_speaking):
         self.robo_widget.set_speaking(is_speaking)
@@ -1930,58 +1961,48 @@ class TwoCodeIsland(QWidget):
         play_chime("click")
         self.last_user_activity = time.time()
         self.chat_input.clear()
-        self.chat_display.setText(f"<b>Вы:</b> {query}<br><br><b>Луна:</b> <i>Думает...</i>")
-        self.apply_emotion("thinking")
 
-        def dialogue_worker():
-            try:
-                # 1. Conversational Brain response
-                reply, emo, action = self.companion_brain.process(query)
-                time.sleep(0.35)
+        # 1. Conversational Brain response
+        reply, emo, action = self.companion_brain.process(query)
+        self.chat_display.setText(f"<b>Вы:</b> {query}<br><br><b>Луна:</b> {reply}")
+        self.apply_emotion(emo)
 
-                # 2. Update UI with companion response
-                bridge.companion_replied.emit(f"<b>Вы:</b> {query}<br><br><b>Луна:</b> {reply}", emo)
+        # 2. Voice response aloud immediately!
+        if hasattr(self, 'voice'):
+            self.voice.speak(reply)
 
-                # 3. If action callback exists (music, screenshot), execute it on main thread
-                if action:
-                    QTimer.singleShot(150, action)
+        # 3. Action if any
+        if action:
+            QTimer.singleShot(150, action)
 
-                # 4. Speak aloud!
-                if hasattr(self, 'voice'):
-                    self.voice.speak(reply)
+        # 4. Transmit coding tasks to Antigravity
+        if any(k in query.lower() for k in ["создай", "напиши", "сделай", "исправь", "почини", "код", "скрипт", "проект", "терминал", "файл"]):
+            clip = QApplication.clipboard()
+            clip.setText(query)
 
-                # 5. If it's a coding/task instruction for Antigravity, also transmit to Antigravity window
-                if any(k in query.lower() for k in ["создай", "напиши", "сделай", "исправь", "почини", "код", "скрипт", "проект", "терминал", "файл"]):
-                    clip = QApplication.clipboard()
-                    clip.setText(query)
+            hwnds = []
+            def enum_cb(hwnd, extra):
+                if user32.IsWindowVisible(hwnd):
+                    buf = ctypes.create_unicode_buffer(512)
+                    user32.GetWindowTextW(hwnd, buf, 512)
+                    title = buf.value
+                    if "antigravity" in title.lower():
+                        hwnds.append(hwnd)
+                return True
 
-                    hwnds = []
-                    def enum_cb(hwnd, extra):
-                        if user32.IsWindowVisible(hwnd):
-                            buf = ctypes.create_unicode_buffer(512)
-                            user32.GetWindowTextW(hwnd, buf, 512)
-                            title = buf.value
-                            if "antigravity" in title.lower():
-                                hwnds.append(hwnd)
-                        return True
-
-                    user32.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)(enum_cb), 0)
-                    if hwnds:
-                        target_hwnd = hwnds[0]
-                        user32.ShowWindow(target_hwnd, 9)
-                        user32.SetForegroundWindow(target_hwnd)
-                        time.sleep(0.2)
-                        user32.keybd_event(0x11, 0, 0, 0)
-                        user32.keybd_event(0x56, 0, 0, 0)
-                        user32.keybd_event(0x56, 0, 2, 0)
-                        user32.keybd_event(0x11, 0, 2, 0)
-                        time.sleep(0.08)
-                        user32.keybd_event(0x0D, 0, 0, 0)
-                        user32.keybd_event(0x0D, 0, 2, 0)
-            except Exception as e:
-                bridge.companion_replied.emit(f"<b>Вы:</b> {query}<br><br>⚠️ {e}", "idle")
-
-        threading.Thread(target=dialogue_worker, daemon=True).start()
+            user32.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)(enum_cb), 0)
+            if hwnds:
+                target_hwnd = hwnds[0]
+                user32.ShowWindow(target_hwnd, 9)
+                user32.SetForegroundWindow(target_hwnd)
+                time.sleep(0.2)
+                user32.keybd_event(0x11, 0, 0, 0)
+                user32.keybd_event(0x56, 0, 0, 0)
+                user32.keybd_event(0x56, 0, 2, 0)
+                user32.keybd_event(0x11, 0, 2, 0)
+                time.sleep(0.08)
+                user32.keybd_event(0x0D, 0, 0, 0)
+                user32.keybd_event(0x0D, 0, 2, 0)
 
     def on_chat_response(self, text):
         self.chat_display.setText(text)
