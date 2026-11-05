@@ -278,6 +278,8 @@ class VoiceInputEngine:
     def __init__(self):
         self.enabled = True
         self.is_active_dictation = False
+        self.dialogue_active_until = 0.0
+        self.ignore_until = 0.0
         self.sample_rate = 16000
         self.block_size = 2048
         self.energy_threshold = 750
@@ -321,8 +323,9 @@ class VoiceInputEngine:
                             is_speaking_phrase = False
                             continue
 
-                        # If robot is currently speaking aloud, ignore microphone to prevent feedback
-                        if VoiceEngine.get().is_speaking:
+                        # If robot is currently speaking aloud or just finished, ignore microphone to prevent echo
+                        now = time.time()
+                        if VoiceEngine.get().is_speaking or now < self.ignore_until:
                             time.sleep(0.08)
                             ring_buffer.clear()
                             is_speaking_phrase = False
@@ -381,14 +384,22 @@ class VoiceInputEngine:
     def _process_recognized_text(self, text: str):
         low = text.lower().strip()
         wake_words = ["байя", "бая", "луна", "нуса", "привет", "остров", "слушай", "маскот", "бот"]
+        exit_words = ["пока", "до свидания", "отбой", "хватит", "замолчи", "закройся", "спасибо всё", "стоп"]
 
-        # If user explicitly clicked mic dictation, process directly
-        if self.is_active_dictation:
-            self.is_active_dictation = False
-            bridge.voice_query_received.emit(text)
+        # 1. Check exit commands
+        if any(w in low for w in exit_words):
+            self.dialogue_active_until = 0.0
+            farewells = ["До связи!", "Буду ждать, если понадоблюсь!", "Всегда на связи!"]
+            bye = random.choice(farewells)
+            bridge.companion_replied.emit(f"<b>Вы:</b> {text}<br><br><b>Байя:</b> {bye}", "wink")
+            VoiceEngine.get().speak(bye)
+            QTimer.singleShot(2500, lambda: bridge.collapse_requested.emit())
             return
 
-        # Check wake words
+        now = time.time()
+        is_dialogue_active = (now < self.dialogue_active_until) or self.is_active_dictation
+
+        # 2. Check wake words
         has_wake = False
         matched_wake = ""
         for w in wake_words:
@@ -397,12 +408,18 @@ class VoiceInputEngine:
                 matched_wake = w
                 break
 
-        if has_wake:
+        # 3. Process if wake word was called OR if we are in an active conversation!
+        if has_wake or is_dialogue_active:
+            # Refresh 15-second active dialogue window
+            self.dialogue_active_until = time.time() + 15.0
+            self.is_active_dictation = False
             bridge.expand_requested.emit()
-            play_chime("heart")
 
-            # Extract command query after wake word
-            query = re.sub(rf'\b{matched_wake}\b', '', low, count=1).strip(' ,!?.')
+            query = low
+            if has_wake:
+                play_chime("heart")
+                query = re.sub(rf'\b{matched_wake}\b', '', low, count=1).strip(' ,!?.')
+
             if query:
                 bridge.voice_query_received.emit(query)
             else:
@@ -410,7 +427,7 @@ class VoiceInputEngine:
                     "Слушаю тебя!",
                     "Да, я здесь! Чем могу помочь?",
                     "Привет! Я на связи!",
-                    "Я тут, слушаю!"
+                    "Я тут, слушаю внимательно!"
                 ]
                 ans = random.choice(answers)
                 bridge.companion_replied.emit(f"<b>Вы:</b> {text}<br><br><b>Байя:</b> {ans}", "happy")
@@ -2045,6 +2062,11 @@ class TwoCodeIsland(QWidget):
     def on_speaking_changed(self, is_speaking):
         self.robo_widget.set_speaking(is_speaking)
         self.pill_robo.set_speaking(is_speaking)
+        if not is_speaking and hasattr(self, 'voice_input') and self.voice_input.enabled:
+            self.voice_input.ignore_until = time.time() + 0.45
+            self.voice_input.dialogue_active_until = time.time() + 15.0
+            if hasattr(self, 'chat_input'):
+                self.chat_input.setPlaceholderText("🎙️ Слушаю вас... Говорите!")
 
     def on_companion_replied(self, display_text, emotion):
         self.chat_display.setText(display_text)
