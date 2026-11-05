@@ -1,7 +1,6 @@
 {
   "sound_enabled": true,
-  "mascot_type": "nusa",
-  "always_on_top": true,
+  "always_on_top": false,
   "pos_x": null,
   "pos_y": null
 }
