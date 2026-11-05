@@ -139,6 +139,8 @@ class BridgeSignals(QObject):
     user_chat_response = pyqtSignal(str)
     speaking_state_changed = pyqtSignal(bool)
     companion_replied = pyqtSignal(str, str)
+    expand_requested = pyqtSignal()
+    collapse_requested = pyqtSignal()
 
 
 bridge = BridgeSignals()
@@ -426,6 +428,12 @@ class IslandAPIHandler(BaseHTTPRequestHandler):
                 "emotions": LiveAnimatedRobo.EMOTIONS_LIST,
                 "count": len(LiveAnimatedRobo.EMOTIONS_LIST)
             })
+        elif path in ['/expand', '/show', '/api/expand']:
+            bridge.expand_requested.emit()
+            self._send_json(200, {"success": True, "expanded": True})
+        elif path in ['/collapse', '/hide', '/api/collapse']:
+            bridge.collapse_requested.emit()
+            self._send_json(200, {"success": True, "collapsed": True})
         elif path in ['/decision', '/api/decision', '/check_decision']:
             self._send_json(200, {"status": IslandAPIHandler.last_decision})
         else:
@@ -467,6 +475,12 @@ class IslandAPIHandler(BaseHTTPRequestHandler):
             IslandAPIHandler.decision_event.set()
             bridge.decision_made.emit(decision)
             self._send_json(200, {"success": True, "decision": decision})
+        elif path in ['/expand', '/api/expand', '/show']:
+            bridge.expand_requested.emit()
+            self._send_json(200, {"success": True, "expanded": True})
+        elif path in ['/collapse', '/api/collapse', '/hide']:
+            bridge.collapse_requested.emit()
+            self._send_json(200, {"success": True, "collapsed": True})
         elif path in ['/speak', '/say', '/api/speak']:
             msg = payload.get('text') or payload.get('message') or payload.get('say')
             if msg:
@@ -1069,9 +1083,13 @@ class TwoCodeIsland(QWidget):
         bridge.user_chat_response.connect(self.on_chat_response)
         bridge.speaking_state_changed.connect(self.on_speaking_changed)
         bridge.companion_replied.connect(self.on_companion_replied)
+        bridge.expand_requested.connect(self.expand)
+        bridge.collapse_requested.connect(self.collapse)
 
         # Start collapsed as micro droplet
         self.set_collapsed_geometry(animate=False)
+        self.raise_()
+        self.activateWindow()
         self.update_clock()
 
     def minimumSizeHint(self):
@@ -1205,6 +1223,8 @@ class TwoCodeIsland(QWidget):
         self.anim.setEndValue(target_rect)
         self.anim.start()
         self.show()
+        self.raise_()
+        self.activateWindow()
         make_window_topmost(int(self.winId()))
         if getattr(self, "is_chat_mode", True) and hasattr(self, "chat_input"):
             QTimer.singleShot(140, self.chat_input.setFocus)
@@ -1228,6 +1248,8 @@ class TwoCodeIsland(QWidget):
         self.anim.setEndValue(target_rect)
         self.anim.start()
         self.show()
+        self.raise_()
+        self.activateWindow()
         make_window_topmost(int(self.winId()))
 
     def set_collapsed_geometry(self, animate=False):
@@ -1247,6 +1269,8 @@ class TwoCodeIsland(QWidget):
             self.setGeometry(target_rect)
 
         self.show()
+        self.raise_()
+        self.activateWindow()
         make_window_topmost(int(self.winId()))
 
     def update_style(self):
