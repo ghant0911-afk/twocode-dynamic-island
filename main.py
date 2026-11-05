@@ -143,6 +143,7 @@ class BridgeSignals(QObject):
     collapse_requested = pyqtSignal()
     voice_query_received = pyqtSignal(str)
     mic_state_changed = pyqtSignal(bool)
+    game_comment_requested = pyqtSignal()
 
 
 bridge = BridgeSignals()
@@ -435,6 +436,300 @@ class VoiceInputEngine:
 
 
 # =========================================================================
+# LIVE AI GAMING STREAMER & SCREEN COMMENTARY ENGINE
+# =========================================================================
+class GameCommentaryEngine(QObject):
+    """
+    Live AI Gaming Streamer & Screen Perception Engine.
+    Perceives the screen in real-time, detects active games and gameplay dynamics
+    (firefights, danger/low HP, stealth, exploration, victory, clutch),
+    and speaks witty, energetic streamer-style reactions via Silero Neural.
+    """
+    commentary_ready = pyqtSignal(str, str)  # comment_text, emotion
+
+    def __init__(self, island=None):
+        super().__init__()
+        self.island = island
+        self.is_auto_mode = False
+        self.last_comment_time = 0.0
+        self.prev_frame_data = None
+        self.cooldown = 14.0  # Min seconds between auto-comments
+
+        self.auto_timer = QTimer(self)
+        self.auto_timer.timeout.connect(self._auto_tick)
+        self.auto_timer.start(7500)
+
+    def set_auto(self, enabled: bool):
+        self.is_auto_mode = enabled
+        self.last_comment_time = time.time()
+
+    def toggle_auto(self) -> bool:
+        self.is_auto_mode = not self.is_auto_mode
+        self.last_comment_time = time.time()
+        return self.is_auto_mode
+
+    def get_active_game_info(self):
+        try:
+            hwnd = user32.GetForegroundWindow()
+            if not hwnd:
+                return {"type": "desktop", "name": "Рабочий стол", "title": "", "proc": ""}
+
+            length = user32.GetWindowTextLengthW(hwnd)
+            buff = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buff, length + 1)
+            title = buff.value.strip()
+
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            proc_name = ""
+            try:
+                proc_name = psutil.Process(pid.value).name().lower()
+            except Exception:
+                pass
+
+            title_low = title.lower()
+
+            if "cs2" in proc_name or "csgo" in proc_name or "counter-strike" in title_low:
+                return {"type": "cs2", "name": "Counter-Strike 2", "title": title, "proc": proc_name}
+            if "dota2" in proc_name or "dota 2" in title_low:
+                return {"type": "dota2", "name": "Dota 2", "title": title, "proc": proc_name}
+            if "minecraft" in title_low or proc_name in ["javaw.exe", "minecraft.exe", "bedrock_server.exe"]:
+                return {"type": "minecraft", "name": "Minecraft", "title": title, "proc": proc_name}
+            if "cyberpunk" in proc_name or "cyberpunk" in title_low:
+                return {"type": "cyberpunk", "name": "Cyberpunk 2077", "title": title, "proc": proc_name}
+            if "genshin" in proc_name or "genshin" in title_low:
+                return {"type": "genshin", "name": "Genshin Impact", "title": title, "proc": proc_name}
+            if "starrail" in proc_name or "star rail" in title_low:
+                return {"type": "starrail", "name": "Honkai: Star Rail", "title": title, "proc": proc_name}
+            if "valorant" in proc_name or "valorant" in title_low:
+                return {"type": "valorant", "name": "Valorant", "title": title, "proc": proc_name}
+            if "r5apex" in proc_name or "apex" in title_low:
+                return {"type": "apex", "name": "Apex Legends", "title": title, "proc": proc_name}
+            if "roblox" in proc_name or "roblox" in title_low:
+                return {"type": "roblox", "name": "Roblox", "title": title, "proc": proc_name}
+            if "witcher" in proc_name or "witcher" in title_low:
+                return {"type": "witcher", "name": "Ведьмак 3", "title": title, "proc": proc_name}
+            if any(k in proc_name for k in ["eldenring", "darksouls", "sekiro"]):
+                return {"type": "souls", "name": "Elden Ring / Souls", "title": title, "proc": proc_name}
+            if "rust" in proc_name or "rustclient" in proc_name:
+                return {"type": "rust", "name": "Rust", "title": title, "proc": proc_name}
+            if "escapefromtarkov" in proc_name or "tarkov" in title_low:
+                return {"type": "tarkov", "name": "Escape from Tarkov", "title": title, "proc": proc_name}
+            if any(k in proc_name for k in ["worldoftanks", "warthunder"]):
+                return {"type": "tanks", "name": "World of Tanks / War Thunder", "title": title, "proc": proc_name}
+
+            is_game = any(k in title_low for k in ["game", "play", "simulator", "steam", "unreal", "unity", "remake"])
+            return {
+                "type": "game" if is_game else "desktop",
+                "name": title if title else "Рабочий стол",
+                "title": title,
+                "proc": proc_name
+            }
+        except Exception:
+            return {"type": "desktop", "name": "Рабочий стол", "title": "", "proc": ""}
+
+    def analyze_screen(self):
+        try:
+            screen = QApplication.primaryScreen()
+            if not screen:
+                return {"brightness": 128, "red_ratio": 1.0, "motion": 0}
+            pixmap = screen.grabWindow(0)
+            if pixmap.isNull():
+                return {"brightness": 128, "red_ratio": 1.0, "motion": 0}
+
+            scaled = pixmap.scaled(160, 90)
+            qimg = scaled.toImage().convertToFormat(QImage.Format.Format_RGB888)
+            w = qimg.width()
+            h = qimg.height()
+            stride = qimg.bytesPerLine()
+            ptr = qimg.bits()
+            ptr.setsize(h * stride)
+            curr_bytes = bytes(ptr)
+
+            total_r, total_g, total_b = 0, 0, 0
+            samples = 0
+            motion_diff = 0
+
+            has_prev = (self.prev_frame_data is not None and len(self.prev_frame_data) == len(curr_bytes))
+            prev = self.prev_frame_data
+
+            step = 3
+            for y in range(0, h, step):
+                row_start = y * stride
+                for x in range(0, w, step):
+                    idx = row_start + x * 3
+                    if idx + 2 < len(curr_bytes):
+                        r = curr_bytes[idx]
+                        g = curr_bytes[idx+1]
+                        b = curr_bytes[idx+2]
+                        total_r += r
+                        total_g += g
+                        total_b += b
+                        samples += 1
+                        if has_prev:
+                            pr = prev[idx]
+                            pg = prev[idx+1]
+                            pb = prev[idx+2]
+                            diff = abs(int(r) - int(pr)) + abs(int(g) - int(pg)) + abs(int(b) - int(pb))
+                            motion_diff += diff
+
+            self.prev_frame_data = curr_bytes
+
+            if samples == 0:
+                samples = 1
+            avg_r = total_r / samples
+            avg_g = total_g / samples
+            avg_b = total_b / samples
+            brightness = (avg_r + avg_g + avg_b) / 3.0
+            red_ratio = avg_r / max(1.0, (avg_g + avg_b) / 2.0)
+            motion = (motion_diff / samples) if has_prev else 0.0
+
+            return {
+                "brightness": brightness,
+                "avg_r": avg_r,
+                "avg_g": avg_g,
+                "avg_b": avg_b,
+                "red_ratio": red_ratio,
+                "motion": motion
+            }
+        except Exception:
+            return {"brightness": 128, "red_ratio": 1.0, "motion": 0}
+
+    def generate_immediate_comment(self, user_query=""):
+        game_info = self.get_active_game_info()
+        metrics = self.analyze_screen()
+
+        g_type = game_info.get("type", "desktop")
+        g_name = game_info.get("name", "игры")
+        motion = metrics.get("motion", 0)
+        red_ratio = metrics.get("red_ratio", 1.0)
+        brightness = metrics.get("brightness", 128)
+
+        # 1. Critical danger / Red Flash / Low HP
+        if red_ratio > 1.42 and brightness > 35:
+            danger_lines = [
+                "Ой-ой-ой, экран весь красный! ХП на донышке, прячься в укрытие!",
+                "Опасный момент! По тебе зажали, срочно юзай аптечку или броню!",
+                "Какой бешеный огонь! Не высовывайся, отхилься сначала!",
+                "Держись! Сердце колотится, но ты ещё в строю! Перезарядись!"
+            ]
+            return {"text": random.choice(danger_lines), "emotion": "shocked", "game": g_name}
+
+        # 2. High Motion / Firefight / High Speed
+        if motion > 32.0:
+            action_lines = [
+                "Вот это экшен! Зажимай до талого, не отпускай!",
+                "Бешеная динамика пошла! Давай-давай, разваливай их всех!",
+                "Ого, как экран летает! Руки не дрожат? Тащи этот раунд!",
+                "Красивый манёвр! Смотри по флангам, заходят со спины!",
+                "Чистейший скилл! За такой мув можно и клип на Твич нарезать!"
+            ]
+            return {"text": random.choice(action_lines), "emotion": "gaming", "game": g_name}
+
+        # 3. Dark scene / Stealth / Horror / Mystery
+        if brightness < 36:
+            dark_lines = [
+                "Тут темновато... Атмосфера прямо нагнетает! Шаги слушай внимательно.",
+                "Тихо-тихо, крадёмся... Главное не спалиться на ровном месте!",
+                "Жуткая локация! Кажется, из темноты кто-то прямо на нас смотрит...",
+                "Фонарик бы включить... Или ПНВ нацепить! Будь начеку!"
+            ]
+            return {"text": random.choice(dark_lines), "emotion": "curious", "game": g_name}
+
+        # 4. Game-specific commentary
+        if g_type == "cs2":
+            cs_lines = [
+                "Четкий прицел держишь! Чекай углы и не забывай про тайминги.",
+                "Смотри за спину, могут с бэка обойти! Плент под контролем?",
+                "Давай красивый хедшот! Верим в твой аим!",
+                "Экономику береги, если что — сейви девайс!"
+            ]
+            return {"text": random.choice(cs_lines), "emotion": "gaming", "game": g_name}
+
+        if g_type == "dota2":
+            dota_lines = [
+                "Фарм идёт полным ходом! Крипов не пропускай, догоняй по нетворсу!",
+                "Карту мониторь! Враги с мида ушли, могут в смоках зайти!",
+                "В тимфайте главное вражеских саппортов вырезать! Жди врыв!",
+                "Рошан на месте? Пора забирать Аегис и идти ломать трон!"
+            ]
+            return {"text": random.choice(dota_lines), "emotion": "gaming", "game": g_name}
+
+        if g_type == "minecraft":
+            mc_lines = [
+                "Копаем глубже! Только прямо под себя не копай, лаву встретишь!",
+                "Слышишь шипение крипера? Оглянись, пока базу не взорвали!",
+                "Крафтимся и в путь! Алмазы сами себя не добудут!",
+                "Уютная база строится! Главное факелов побольше расставить, чтобы мобы не спавнились."
+            ]
+            return {"text": random.choice(mc_lines), "emotion": "happy", "game": g_name}
+
+        if g_type == "cyberpunk":
+            cp_lines = [
+                "Найт-Сити во всей красе! Неоновые огни, пушки и киберпсихоз!",
+                "Врубай импланты на полную! Покажи им, кто тут главная легенда Найт-Сити!",
+                "Стильный хром! Смотри, чтобы кибердека не перегрелась."
+            ]
+            return {"text": random.choice(cp_lines), "emotion": "cool", "game": g_name}
+
+        if g_type in ["genshin", "starrail"]:
+            gacha_lines = [
+                "Красивая ульта пошла! Комбинируй стихии, давай максимальный урон!",
+                "Какая яркая анимация! Надеюсь, крутки на нового персонажа накоплены!",
+                "Идеальный тайминг для ротации! Босс уже почти готов!"
+            ]
+            return {"text": random.choice(gacha_lines), "emotion": "star", "game": g_name}
+
+        if g_type == "souls":
+            souls_lines = [
+                "Перекат, ещё перекат! Жадно не бей, тайминги у босса смертельные!",
+                "Главное не жадничать на последнем ударе! Жди окно атаки!",
+                "Потрачено... Шучу! Ты сможешь, читай паттерн босса!"
+            ]
+            return {"text": random.choice(souls_lines), "emotion": "shocked", "game": g_name}
+
+        if g_type in ["rust", "tarkov"]:
+            surv_lines = [
+                "Тихо слушай кусты! Тут каждый шорох может быть последним.",
+                "Лут ценный в подсумок прячь! И сразу на выход двигай, не жадничай!",
+                "Чекай выходы, там кемперы любят сидеть!"
+            ]
+            return {"text": random.choice(surv_lines), "emotion": "thinking", "game": g_name}
+
+        # 5. General gaming & screen fallback
+        general_lines = [
+            f"Внимательно смотрю на твой экран! Вижу «{g_name}». Грамотная тактика, продолжай!",
+            "Отличная катка! Я слежу за картинкой и готова комментировать каждый твой шаг!",
+            "Красивая картинка! Спокойно развиваемся и готовимся к следующему замесу.",
+            "Так-так, что тут у нас интересного? Пылесось весь лут, в хозяйстве пригодится!",
+            "Я рядом и слежу за игрой! Покажи им высший класс!"
+        ]
+        return {"text": random.choice(general_lines), "emotion": "gaming", "game": g_name}
+
+    def trigger_now(self, user_query=""):
+        res = self.generate_immediate_comment(user_query)
+        self.last_comment_time = time.time()
+        self.commentary_ready.emit(res["text"], res["emotion"])
+        return res
+
+    def _auto_tick(self):
+        if not self.is_auto_mode:
+            return
+        now = time.time()
+        if now - self.last_comment_time < self.cooldown:
+            return
+
+        # Do not speak if island is already speaking
+        if self.island and hasattr(self.island, 'voice') and self.island.voice.is_speaking:
+            return
+
+        game_info = self.get_active_game_info()
+        # If in a game or significant screen motion
+        if game_info.get("type") != "desktop":
+            self.trigger_now()
+
+
+# =========================================================================
 # INTELLIGENT COMPANION BRAIN (CONVERSATIONAL MIND)
 # =========================================================================
 class CompanionBrain:
@@ -447,6 +742,23 @@ class CompanionBrain:
 
     def process(self, query: str):
         q = query.lower().strip()
+
+        # 0. Live Gaming & Screen Commentary
+        if any(w in q for w in ["коммент", "игр", "катка", "катку", "стрим", "посмотри на экран", "глянь на экран", "что на экране", "как я играю", "как играю", "гейминг", "оцени игру"]):
+            if any(w in q for w in ["выключи", "отключи", "стоп"]):
+                if hasattr(self.island, 'game_commentary'):
+                    self.island.game_commentary.set_auto(False)
+                    self.island.update_game_ui(False)
+                    return "Авто-комментатор игр отключен. Зови, если понадобится мнение о катке!", "sleepy", None
+            if any(w in q for w in ["включи", "запусти", "авто"]):
+                if hasattr(self.island, 'game_commentary'):
+                    self.island.game_commentary.set_auto(True)
+                    self.island.update_game_ui(True)
+                    return "Авто-комментатор активирован! Я смотрю за твоей игрой и буду комментировать происходящее!", "gaming", None
+
+            if hasattr(self.island, 'game_commentary'):
+                res = self.island.game_commentary.generate_immediate_comment(query)
+                return res["text"], res["emotion"], None
 
         # 1. Greetings
         if any(w in q for w in ["привет", "здравствуй", "добрый день", "доброе утро", "добрый вечер", "хай", "ку", "салют", "йоу", "hello", "hi"]):
@@ -461,9 +773,9 @@ class CompanionBrain:
         # 2. Identity / About
         if any(w in q for w in ["кто ты", "как тебя зовут", "что ты умеешь", "расскажи о себе", "твое имя", "ты кто"]):
             return (
-                "Я Луна — твой живой остров и умный голосовой компаньон! Я живу прямо на твоём экране, "
-                "умею выражать 18 эмоций, разговаривать голосом, управлять музыкой, делать скриншоты "
-                "и помогать в работе с кодом!", "curious", None
+                "Я Байя — твой живой остров, верный напарник по играм и голосовой компаньон! "
+                "Я живу прямо на твоём экране, умею комментировать катки, выражать 18 эмоций, "
+                "разговаривать живым голосом, управлять музыкой и помогать в коде!", "curious", None
             )
 
         # 3. Status / How are you
@@ -613,6 +925,9 @@ class IslandAPIHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"success": True, "collapsed": True})
         elif path in ['/decision', '/api/decision', '/check_decision']:
             self._send_json(200, {"status": IslandAPIHandler.last_decision})
+        elif path in ['/game_comment', '/api/game_comment']:
+            bridge.game_comment_requested.emit()
+            self._send_json(200, {"success": True, "action": "game_comment"})
         else:
             self._send_json(404, {"error": "Not Found"})
 
@@ -1241,12 +1556,14 @@ class TwoCodeIsland(QWidget):
         # Tray
         self.setup_tray_icon()
 
-        # Companion Brain & Voice & Microphone
+        # Companion Brain & Voice & Microphone & Game Commentary
         self.voice = VoiceEngine.get()
         self.voice_input = VoiceInputEngine.get()
         self.last_user_activity = time.time()
         self.is_autonomous_life_enabled = True
         self.companion_brain = CompanionBrain(self)
+        self.game_commentary = GameCommentaryEngine(self)
+        self.game_commentary.commentary_ready.connect(self.on_game_commentary_ready)
 
         # Autonomous Life & Gaze Engine Timer (Every 3.8s)
         self.life_timer = QTimer(self)
@@ -1265,6 +1582,7 @@ class TwoCodeIsland(QWidget):
         bridge.collapse_requested.connect(self.collapse)
         bridge.voice_query_received.connect(self.on_voice_query_received)
         bridge.mic_state_changed.connect(self.update_mic_ui)
+        bridge.game_comment_requested.connect(self.on_click_game_comment)
 
         # Start collapsed as micro droplet
         self.set_collapsed_geometry(animate=False)
@@ -1805,7 +2123,16 @@ class TwoCodeIsland(QWidget):
         self.btn_mic.customContextMenuRequested.connect(self.on_direct_dictate)
         self.update_mic_ui(self.voice_input.enabled if hasattr(self, 'voice_input') else True)
 
+        self.btn_game = QPushButton("🎮")
+        self.btn_game.setFixedSize(26, 22)
+        self.btn_game.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_game.clicked.connect(self.on_click_game_comment)
+        self.btn_game.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.btn_game.customContextMenuRequested.connect(self.on_toggle_auto_game_comment)
+        self.update_game_ui(False)
+
         chat_input_row.addWidget(self.btn_mic)
+        chat_input_row.addWidget(self.btn_game)
         chat_input_row.addWidget(self.chat_input)
         chat_input_row.addWidget(btn_send)
         chat_layout.addLayout(chat_input_row)
@@ -2136,6 +2463,64 @@ class TwoCodeIsland(QWidget):
             self.chat_input.setPlaceholderText("Говорите прямо сейчас, слушаю...")
             self.apply_emotion("curious")
 
+    def update_game_ui(self, enabled: bool):
+        if not hasattr(self, 'btn_game'):
+            return
+        if enabled:
+            self.btn_game.setStyleSheet("""
+                QPushButton {
+                    background: rgba(191, 90, 242, 0.25);
+                    color: #BF5AF2;
+                    border: 1px solid #BF5AF2;
+                    border-radius: 6px;
+                    font-size: 11px;
+                }
+                QPushButton:hover { background: rgba(191, 90, 242, 0.4); }
+            """)
+            self.btn_game.setToolTip("🎮 Авто-комментатор игр: ВКЛЮЧЕН!\nБайя непрерывно наблюдает за каткой.\n• Клик: прокомментировать прямо сейчас\n• Правый клик: выключить авто-режим")
+        else:
+            self.btn_game.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.06);
+                    color: #8E8D92;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 6px;
+                    font-size: 11px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.12);
+                    color: #FFFFFF;
+                }
+            """)
+            self.btn_game.setToolTip("🎮 Комментатор игр (ручной режим):\n• Клик: прокомментировать экран прямо сейчас\n• Правый клик: включить авто-комментатор")
+        if hasattr(self, 'act_game_auto'):
+            self.act_game_auto.setChecked(enabled)
+
+    def on_click_game_comment(self):
+        play_chime("click")
+        if hasattr(self, 'game_commentary'):
+            self.game_commentary.trigger_now()
+
+    def on_toggle_auto_game_comment(self, pos=None):
+        play_chime("heart")
+        if hasattr(self, 'game_commentary'):
+            new_state = self.game_commentary.toggle_auto()
+            self.update_game_ui(new_state)
+            if new_state:
+                self.chat_display.setText("🎮 <b>Авто-комментатор игр включен!</b> Байя следит за экраном и комментирует катку вслух!")
+                self.apply_emotion("gaming")
+                if hasattr(self, 'voice'):
+                    self.voice.speak("Авто-комментатор включен! Я смотрю за твоей игрой, тащи катку!")
+            else:
+                self.chat_display.setText("🎮 <b>Авто-комментатор выключен.</b> Нажми 🎮 чтобы комментировать вручную.")
+                self.apply_emotion("curious")
+
+    def on_game_commentary_ready(self, comment_text, emotion):
+        self.chat_display.setText(f"🎮 <b>Игровой комментатор:</b><br><br><b>Байя:</b> {comment_text}")
+        self.apply_emotion(emotion)
+        if hasattr(self, 'voice'):
+            self.voice.speak(comment_text)
+
     def on_voice_query_received(self, text: str):
         if not text:
             return
@@ -2290,7 +2675,7 @@ class TwoCodeIsland(QWidget):
 
         # 1. Conversational Brain response
         reply, emo, action = self.companion_brain.process(query)
-        self.chat_display.setText(f"<b>Вы:</b> {query}<br><br><b>Луна:</b> {reply}")
+        self.chat_display.setText(f"<b>Вы:</b> {query}<br><br><b>Байя:</b> {reply}")
         self.apply_emotion(emo)
 
         # 2. Voice response aloud immediately!
@@ -2540,6 +2925,15 @@ class TwoCodeIsland(QWidget):
         self.act_mic_tray.setCheckable(True)
         self.act_mic_tray.setChecked(self.voice_input.enabled if hasattr(self, 'voice_input') else True)
         self.act_mic_tray.triggered.connect(self.on_toggle_mic)
+
+        menu.addSeparator()
+        act_game_now = menu.addAction("🎮 Прокомментировать экран / игру")
+        act_game_now.triggered.connect(self.on_click_game_comment)
+
+        self.act_game_auto = menu.addAction("🎮 Авто-комментатор игр")
+        self.act_game_auto.setCheckable(True)
+        self.act_game_auto.setChecked(False)
+        self.act_game_auto.triggered.connect(self.on_toggle_auto_game_comment)
 
         menu.addSeparator()
         act_reset = menu.addAction("Сбросить позицию по центру")
