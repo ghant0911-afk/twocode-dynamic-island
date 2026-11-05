@@ -1,1 +1,6 @@
 PyQt6>=6.5.0
+pywin32>=306
+pygame>=2.6.0
+silero-tts>=0.0.5
+torch>=2.1.0
+torchaudio>=2.1.0
