@@ -141,6 +141,8 @@ class BridgeSignals(QObject):
     companion_replied = pyqtSignal(str, str)
     expand_requested = pyqtSignal()
     collapse_requested = pyqtSignal()
+    voice_query_received = pyqtSignal(str)
+    mic_state_changed = pyqtSignal(bool)
 
 
 bridge = BridgeSignals()
@@ -255,6 +257,164 @@ class VoiceEngine:
                 bridge.speaking_state_changed.emit(False)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+
+# =========================================================================
+# ASYNC MICROPHONE & WAKE WORD LISTENER ENGINE (SOUNDDEVICE + SPEECH_RECOGNITION)
+# =========================================================================
+import speech_recognition as sr
+import sounddevice as sd
+import numpy as np
+
+class VoiceInputEngine:
+    _instance = None
+
+    @classmethod
+    def get(cls):
+        if cls._instance is None:
+            cls._instance = VoiceInputEngine()
+        return cls._instance
+
+    def __init__(self):
+        self.enabled = True
+        self.is_active_dictation = False
+        self.sample_rate = 16000
+        self.block_size = 2048
+        self.energy_threshold = 750
+        self.recognizer = sr.Recognizer()
+        self._thread = None
+        self._stop_event = threading.Event()
+        self.start()
+
+    def set_enabled(self, enabled: bool):
+        self.enabled = enabled
+        bridge.mic_state_changed.emit(self.enabled)
+
+    def toggle(self):
+        self.set_enabled(not self.enabled)
+        return self.enabled
+
+    def start(self):
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._listen_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop_event.set()
+
+    def _listen_loop(self):
+        ring_buffer = []
+        is_speaking_phrase = False
+        silence_chunks = 0
+        max_silence_chunks = 8  # ~1.0s of silence to finalize utterance
+
+        while not self._stop_event.is_set():
+            try:
+                with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype='int16', blocksize=self.block_size) as stream:
+                    while not self._stop_event.is_set():
+                        # If listening is toggled OFF, sleep lightly
+                        if not self.enabled:
+                            time.sleep(0.12)
+                            ring_buffer.clear()
+                            is_speaking_phrase = False
+                            continue
+
+                        # If robot is currently speaking aloud, ignore microphone to prevent feedback
+                        if VoiceEngine.get().is_speaking:
+                            time.sleep(0.08)
+                            ring_buffer.clear()
+                            is_speaking_phrase = False
+                            continue
+
+                        data, overflowed = stream.read(self.block_size)
+                        audio_chunk = np.frombuffer(data, dtype=np.int16)
+                        amplitude = np.mean(np.abs(audio_chunk))
+
+                        # Dynamic ambient noise calibration
+                        if not is_speaking_phrase and amplitude < self.energy_threshold:
+                            self.energy_threshold = max(450, int(self.energy_threshold * 0.98 + (amplitude * 2.2) * 0.02))
+
+                        if amplitude > self.energy_threshold * 1.35:
+                            if not is_speaking_phrase:
+                                is_speaking_phrase = True
+                                silence_chunks = 0
+                                ring_buffer = ring_buffer[-2:] if len(ring_buffer) >= 2 else []
+                            ring_buffer.append(audio_chunk)
+                            silence_chunks = 0
+                        elif is_speaking_phrase:
+                            ring_buffer.append(audio_chunk)
+                            silence_chunks += 1
+
+                            if silence_chunks >= max_silence_chunks:
+                                is_speaking_phrase = False
+                                silence_chunks = 0
+                                if len(ring_buffer) >= 5:
+                                    audio_frames = np.concatenate(ring_buffer)
+                                    ring_buffer.clear()
+                                    self._dispatch_recognition(audio_frames)
+                                else:
+                                    ring_buffer.clear()
+                        else:
+                            ring_buffer.append(audio_chunk)
+                            if len(ring_buffer) > 3:
+                                ring_buffer.pop(0)
+            except Exception:
+                time.sleep(1.0)
+
+    def _dispatch_recognition(self, audio_frames):
+        def _worker():
+            try:
+                audio_bytes = audio_frames.tobytes()
+                audio_data = sr.AudioData(audio_bytes, self.sample_rate, 2)
+                text = self.recognizer.recognize_google(audio_data, language="ru-RU")
+                if text:
+                    self._process_recognized_text(text.strip())
+            except sr.UnknownValueError:
+                pass
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _process_recognized_text(self, text: str):
+        low = text.lower().strip()
+        wake_words = ["байя", "бая", "луна", "нуса", "привет", "остров", "слушай", "маскот", "бот"]
+
+        # If user explicitly clicked mic dictation, process directly
+        if self.is_active_dictation:
+            self.is_active_dictation = False
+            bridge.voice_query_received.emit(text)
+            return
+
+        # Check wake words
+        has_wake = False
+        matched_wake = ""
+        for w in wake_words:
+            if low.startswith(w) or f" {w} " in f" {low} ":
+                has_wake = True
+                matched_wake = w
+                break
+
+        if has_wake:
+            bridge.expand_requested.emit()
+            play_chime("heart")
+
+            # Extract command query after wake word
+            query = re.sub(rf'\b{matched_wake}\b', '', low, count=1).strip(' ,!?.')
+            if query:
+                bridge.voice_query_received.emit(query)
+            else:
+                answers = [
+                    "Слушаю тебя!",
+                    "Да, я здесь! Чем могу помочь?",
+                    "Привет! Я на связи!",
+                    "Я тут, слушаю!"
+                ]
+                ans = random.choice(answers)
+                bridge.companion_replied.emit(f"<b>Вы:</b> {text}<br><br><b>Байя:</b> {ans}", "happy")
+                VoiceEngine.get().speak(ans)
 
 
 # =========================================================================
@@ -1064,8 +1224,9 @@ class TwoCodeIsland(QWidget):
         # Tray
         self.setup_tray_icon()
 
-        # Companion Brain & Voice
+        # Companion Brain & Voice & Microphone
         self.voice = VoiceEngine.get()
+        self.voice_input = VoiceInputEngine.get()
         self.last_user_activity = time.time()
         self.is_autonomous_life_enabled = True
         self.companion_brain = CompanionBrain(self)
@@ -1085,6 +1246,8 @@ class TwoCodeIsland(QWidget):
         bridge.companion_replied.connect(self.on_companion_replied)
         bridge.expand_requested.connect(self.expand)
         bridge.collapse_requested.connect(self.collapse)
+        bridge.voice_query_received.connect(self.on_voice_query_received)
+        bridge.mic_state_changed.connect(self.update_mic_ui)
 
         # Start collapsed as micro droplet
         self.set_collapsed_geometry(animate=False)
@@ -1109,8 +1272,11 @@ class TwoCodeIsland(QWidget):
                     cfg = json.load(f)
                     self.sound_enabled = cfg.get("sound_enabled", True)
                     self.voice_enabled = cfg.get("voice_enabled", True)
+                    self.mic_enabled = cfg.get("mic_enabled", True)
                     if hasattr(self, 'voice'):
                         self.voice.enabled = self.voice_enabled
+                    if hasattr(self, 'voice_input'):
+                        self.voice_input.set_enabled(self.mic_enabled)
                     self.custom_x = cfg.get("pos_x", None)
                     self.custom_y = cfg.get("pos_y", None)
             except Exception:
@@ -1121,6 +1287,7 @@ class TwoCodeIsland(QWidget):
             cfg = {
                 "sound_enabled": self.sound_enabled,
                 "voice_enabled": self.voice.enabled if hasattr(self, 'voice') else True,
+                "mic_enabled": self.voice_input.enabled if hasattr(self, 'voice_input') else True,
                 "pos_x": self.custom_x,
                 "pos_y": self.custom_y
             }
@@ -1613,6 +1780,15 @@ class TwoCodeIsland(QWidget):
         """)
         btn_send.clicked.connect(self.on_send_chat)
 
+        self.btn_mic = QPushButton("🎙️")
+        self.btn_mic.setFixedSize(26, 22)
+        self.btn_mic.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_mic.clicked.connect(self.on_toggle_mic)
+        self.btn_mic.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.btn_mic.customContextMenuRequested.connect(self.on_direct_dictate)
+        self.update_mic_ui(self.voice_input.enabled if hasattr(self, 'voice_input') else True)
+
+        chat_input_row.addWidget(self.btn_mic)
         chat_input_row.addWidget(self.chat_input)
         chat_input_row.addWidget(btn_send)
         chat_layout.addLayout(chat_input_row)
@@ -1885,6 +2061,64 @@ class TwoCodeIsland(QWidget):
         self.save_config()
         if self.voice.enabled:
             self.voice.speak("Голос включен! Я снова могу говорить.")
+
+    def update_mic_ui(self, enabled: bool):
+        if not hasattr(self, 'btn_mic'):
+            return
+        if enabled:
+            self.btn_mic.setStyleSheet("""
+                QPushButton {
+                    background: rgba(48, 209, 88, 0.22);
+                    color: #30D158;
+                    border: 1px solid #30D158;
+                    border-radius: 6px;
+                    font-size: 11px;
+                }
+                QPushButton:hover { background: rgba(48, 209, 88, 0.38); }
+            """)
+            self.btn_mic.setText("🎙️")
+            self.btn_mic.setToolTip("Микрофон ВКЛЮЧЕН (слушает всё время: «Байя» / «Привет»).\nКлик: выключить.\nПравый клик: прямая диктовка.")
+        else:
+            self.btn_mic.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 69, 58, 0.15);
+                    color: #FF453A;
+                    border: 1px solid rgba(255, 69, 58, 0.5);
+                    border-radius: 6px;
+                    font-size: 11px;
+                }
+                QPushButton:hover { background: rgba(255, 69, 58, 0.3); }
+            """)
+            self.btn_mic.setText("🔇")
+            self.btn_mic.setToolTip("Микрофон ВЫКЛЮЧЕН.\nНажмите, чтобы включить постоянное слушание.")
+        if hasattr(self, 'act_mic_tray'):
+            self.act_mic_tray.setChecked(enabled)
+
+    def on_toggle_mic(self):
+        play_chime("click")
+        if not hasattr(self, 'voice_input'):
+            return
+        new_state = self.voice_input.toggle()
+        self.update_mic_ui(new_state)
+        self.save_config()
+        if new_state:
+            self.chat_display.setText("💬 <b>Микрофон включен:</b> слушаю всё время (скажите <i>«Байя»</i> или <i>«Привет»</i>)...")
+            self.apply_emotion("curious")
+        else:
+            self.chat_display.setText("💬 <b>Микрофон выключен.</b> Ввод доступен только текстом.")
+
+    def on_direct_dictate(self, pos=None):
+        play_chime("ask")
+        if hasattr(self, 'voice_input'):
+            self.voice_input.is_active_dictation = True
+            self.chat_input.setPlaceholderText("Говорите прямо сейчас, слушаю...")
+            self.apply_emotion("curious")
+
+    def on_voice_query_received(self, text: str):
+        if not text:
+            return
+        self.chat_input.setText(text)
+        self.on_send_chat()
 
     def on_life_tick(self):
         if not getattr(self, "is_autonomous_life_enabled", True):
@@ -2279,6 +2513,11 @@ class TwoCodeIsland(QWidget):
 
         act_voice = menu.addAction("Включить / отключить голос")
         act_voice.triggered.connect(self.toggle_voice)
+
+        self.act_mic_tray = menu.addAction("🎙️ Слушать голос («Байя»)")
+        self.act_mic_tray.setCheckable(True)
+        self.act_mic_tray.setChecked(self.voice_input.enabled if hasattr(self, 'voice_input') else True)
+        self.act_mic_tray.triggered.connect(self.on_toggle_mic)
 
         menu.addSeparator()
         act_reset = menu.addAction("Сбросить позицию по центру")
