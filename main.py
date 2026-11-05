@@ -13,9 +13,18 @@ import ctypes
 import threading
 import urllib.parse
 import socket
+import random
+import re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from datetime import datetime
+
+try:
+    import win32com.client
+    import pythoncom
+    HAS_SAPI = True
+except Exception:
+    HAS_SAPI = False
 
 # Redirect stdout/stderr when running headless or with pythonw
 if sys.stdout is None:
@@ -128,9 +137,201 @@ class BridgeSignals(QObject):
     done_signaled = pyqtSignal(dict)
     decision_made = pyqtSignal(str)
     user_chat_response = pyqtSignal(str)
+    speaking_state_changed = pyqtSignal(bool)
+    companion_replied = pyqtSignal(str, str)
 
 
 bridge = BridgeSignals()
+
+
+# =========================================================================
+# ASYNC TEXT-TO-SPEECH VOICE ENGINE (WINDOWS NATIVE SAPI5)
+# =========================================================================
+class VoiceEngine:
+    _instance = None
+
+    @classmethod
+    def get(cls):
+        if cls._instance is None:
+            cls._instance = VoiceEngine()
+        return cls._instance
+
+    def __init__(self):
+        self.enabled = True
+        self.is_speaking = False
+
+    def speak(self, text, on_start=None, on_done=None):
+        if not self.enabled or not text or not HAS_SAPI:
+            if on_done:
+                on_done()
+            return
+
+        def _worker():
+            try:
+                self.is_speaking = True
+                bridge.speaking_state_changed.emit(True)
+                if on_start:
+                    on_start()
+
+                # Clean markdown/code/urls for smooth natural speech
+                clean = re.sub(r'[*_`#~\[\]()>]', ' ', text)
+                clean = re.sub(r'https?://\S+', 'ссылка', clean)
+                clean = re.sub(r'<\/?b>|<\/?i>|<\/?br>', ' ', clean)
+                clean = re.sub(r'\s+', ' ', clean).strip()
+
+                pythoncom.CoInitialize()
+                sapi = win32com.client.Dispatch("SAPI.SpVoice")
+                for v in sapi.GetVoices():
+                    desc = v.GetDescription()
+                    if "Irina" in desc or "Russian" in desc:
+                        sapi.Voice = v
+                        break
+                sapi.Rate = 2  # Youthful, lively pace
+                sapi.Volume = 100
+                sapi.Speak(clean, 0)
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+            finally:
+                self.is_speaking = False
+                bridge.speaking_state_changed.emit(False)
+                if on_done:
+                    on_done()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+
+# =========================================================================
+# INTELLIGENT COMPANION BRAIN (CONVERSATIONAL MIND)
+# =========================================================================
+class CompanionBrain:
+    """
+    Intelligent conversational companion brain for TwoCode Dynamic Island.
+    Understands intent, commands, emotions, small talk, tech queries, and humor.
+    """
+    def __init__(self, island=None):
+        self.island = island
+
+    def process(self, query: str):
+        q = query.lower().strip()
+
+        # 1. Greetings
+        if any(w in q for w in ["привет", "здравствуй", "добрый день", "доброе утро", "добрый вечер", "хай", "ку", "салют", "йоу", "hello", "hi"]):
+            greetings = [
+                "Привет! Рада тебя слышать! Как твоё настроение сегодня?",
+                "Привет-привет! Я на связи, готова покодить или просто поболтать!",
+                "Здравствуй! Чем интересным сегодня займёмся?",
+                "Привет! Все системы в норме, остров готов к общению!"
+            ]
+            return random.choice(greetings), "happy", None
+
+        # 2. Identity / About
+        if any(w in q for w in ["кто ты", "как тебя зовут", "что ты умеешь", "расскажи о себе", "твое имя", "ты кто"]):
+            return (
+                "Я Луна — твой живой остров и умный голосовой компаньон! Я живу прямо на твоём экране, "
+                "умею выражать 18 эмоций, разговаривать голосом, управлять музыкой, делать скриншоты "
+                "и помогать в работе с кодом!", "curious", None
+            )
+
+        # 3. Status / How are you
+        if any(w in q for w in ["как дела", "как настроение", "что делаешь", "как ты", "что нового"]):
+            statuses = [
+                "У меня отличное настроение! Наблюдаю за твоим экраном и полна энергии!",
+                "Всё замечательно! Слушаю твои команды и готова к новым подвигам!",
+                "Полный порядок! Процессор не греется, память свободна, настроение боевое!",
+                "Сижу на динамическом острове, любуюсь твоим рабочим столом!"
+            ]
+            return random.choice(statuses), "star", None
+
+        # 4. Jokes & Humor
+        if any(w in q for w in ["анекдот", "шутк", "рассмеши", "пошути", "юмор"]):
+            jokes = [
+                "Знаешь, почему программисты любят тёмную тему? Потому что свет притягивает баги! 😄",
+                "В мире есть 10 категорий людей: те, кто понимают двоичную систему, и те, кто нет!",
+                "Искусственный интеллект никогда не захватит мир... пока у нас есть кнопка выключения питания!",
+                "Спросили у программиста: стакан наполовину полон или пуст? Он ответил: размер стакана в два раза больше необходимого!",
+                "Почему роботы никогда не устают? Потому что у нас железные нервы и бесконечный цикл while True!"
+            ]
+            return random.choice(jokes), "wink", None
+
+        # 5. Compliments & Love
+        if any(w in q for w in ["ты милая", "красотка", "умница", "молодец", "люблю тебя", "обожаю", "ты лучшая", "классная", "няшка"]):
+            replies = [
+                "Ой, спасибочки! Ты меня смущаешь! С тобой очень приятно работать! ❤️",
+                "Спасибо за тёплые слова! Ты тоже замечательный человек и профи!",
+                "Мур-мур! Посылаю тебе лучи тепла и вдохновения!"
+            ]
+            return random.choice(replies), "love", None
+
+        # 6. Music commands
+        if any(w in q for w in ["музык", "песн", "трек", "плей", "пауз", "следующ", "дальше", "тише", "громче"]):
+            if any(w in q for w in ["следующ", "дальше", "вперед"]):
+                return "Включаю следующий трек!", "music", lambda: send_vk(VK_MEDIA_NEXT_TRACK)
+            elif any(w in q for w in ["предыдущ", "назад"]):
+                return "Возвращаю предыдущий трек!", "music", lambda: send_vk(VK_MEDIA_PREV_TRACK)
+            elif any(w in q for w in ["тише", "убавь"]):
+                return "Убавляю звук!", "music", lambda: send_vk(VK_VOLUME_DOWN)
+            elif any(w in q for w in ["громче", "прибавь"]):
+                return "Прибавляю громкость!", "music", lambda: send_vk(VK_VOLUME_UP)
+            else:
+                return "Переключаю воспроизведение музыки!", "music", lambda: send_vk(VK_MEDIA_PLAY_PAUSE)
+
+        # 7. Screenshot
+        if any(w in q for w in ["скрин", "ножниц", "снимок", "сфотографируй"]):
+            return "Открываю ножницы! Выделяй нужную область экрана.", "reading", trigger_screenclip
+
+        # 8. Time & Date
+        if any(w in q for w in ["время", "который час", "сколько времени", "дата", "число", "день недели"]):
+            now = datetime.now()
+            days = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
+            day_name = days[now.weekday()]
+            return f"Сейчас {now.strftime('%H:%M')}, сегодня {day_name}, {now.strftime('%d.%m.%Y')}. Самое время для продуктивных дел!", "star", None
+
+        # 9. Emotions request
+        if "любов" in q or "сердечк" in q:
+            return "Посылаю тебе много любви и тепла! ♥", "love", None
+        if "звезд" in q or "побед" in q:
+            return "Звёздный режим активирован! Мы лучшие! ★", "star", None
+        if "крут" in q or "очки" in q:
+            return "Смотри, какие стильные пиксельные очки! Стиль — это наше всё. 😎", "cool", None
+        if "груст" in q or "поплачь" in q:
+            return "Эх, иногда бывает грустно... Но вместе мы справимся со всем! 💧", "sad", None
+        if "усни" in q or "спать" in q:
+            return "Хорошо, ухожу в режим дремоты... Сладких снов! zZ", "sleepy", None
+        if "рассердись" in q or "злись" in q:
+            return "Грр! Не зли маленького робота, а то я закоммичу баги в прод! 😡", "grumpy", None
+        if "подмигни" in q:
+            return "Лови игривое подмигивание! 😉", "wink", None
+        if "стесня" in q or "смути" in q:
+            return "Ой, я совсем засмущалась... 😳", "shy", None
+
+        # 10. Math evaluation
+        clean_math = q.replace("сколько будет", "").strip()
+        math_match = re.match(r'^[\d\s\+\-\*\/\(\)\.\^]+$', clean_math)
+        if math_match and any(op in clean_math for op in "+-*/^"):
+            try:
+                expr = clean_math.replace('^', '**')
+                res = eval(expr, {"__builtins__": None}, {})
+                return f"Результат вычисления: {res}", "thinking", None
+            except Exception:
+                pass
+
+        # 11. Coding & Technical Queries
+        if any(w in q for w in ["python", "код", "функци", "переменн", "баг", "ошибк", "git", "api", "скрипт"]):
+            return (
+                f"Отличная задача! Я зафиксировала тему: «{query}». "
+                "Я могу подсказать детали, а если требуется написать готовый код в проекте — "
+                "Antigravity сделает это быстро и качественно!", "cool", None
+            )
+
+        # 12. General conversational fallback
+        fallbacks = [
+            f"Интересная мысль! Я записала: «{query}». Давай подумаем над этим вместе!",
+            f"Я тебя поняла! Всё, что касается «{query}», звучит очень любопытно.",
+            f"Принято! Я всегда рядом и готова обсудить любые твои идеи.",
+            f"Замечательный вопрос. Мне нравится, как ты рассуждаешь!"
+        ]
+        return random.choice(fallbacks), "happy", None
 
 
 class ReusableHTTPServer(ThreadingMixIn, HTTPServer):
@@ -328,10 +529,22 @@ class LiveAnimatedRobo(QWidget):
         self.anim_tick = 0
         self.blink_state = False
         self.blink_timer_counter = 0
+        self.is_speaking = False
+        self.look_offset_x = 0.0
+        self.look_offset_y = 0.0
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.advance_animation)
         self.timer.start(50)  # 20 FPS silky animation
+
+    def set_speaking(self, speaking: bool):
+        self.is_speaking = speaking
+        self.update()
+
+    def set_look_direction(self, dx: float, dy: float):
+        self.look_offset_x = dx
+        self.look_offset_y = dy
+        self.update()
 
     def set_mode(self, mode):
         self.mode = mode
@@ -483,6 +696,9 @@ class LiveAnimatedRobo(QWidget):
         eye_color = QColor("#62C8FF")  # Calm cyan default
 
         # ==================== LOONA & EMO EYE RENDERING ====================
+        p.save()
+        if self.look_offset_x != 0 or self.look_offset_y != 0:
+            p.translate(int(self.look_offset_x * s), int(self.look_offset_y * s))
 
         # 1. BLINKING (Universal state)
         if self.blink_state and self.mode not in ["sleepy", "cool"]:
@@ -661,7 +877,18 @@ class LiveAnimatedRobo(QWidget):
             p.drawRoundedRect(QRect(int(-9 * s), int(eye_y - 4 * s), ew, eh), max(1, int(2.5 * s)), max(1, int(2.5 * s)))
             p.drawRoundedRect(QRect(int(4 * s), int(eye_y - 4 * s), ew, eh), max(1, int(2.5 * s)), max(1, int(2.5 * s)))
 
-        p.restore()
+        p.restore()  # restore gaze translation
+
+        # Speaking animated mouth in visor
+        if self.is_speaking:
+            mouth_y = int(eye_y + 5.5 * s)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor("#FF7B93")))
+            mouth_h = int((2.0 + abs(math.sin(self.anim_tick * 0.8)) * 4.5) * s)
+            mouth_w = max(3, int(6 * s))
+            p.drawEllipse(int(-mouth_w / 2), int(mouth_y - mouth_h / 2), mouth_w, mouth_h)
+
+        p.restore()  # restore root transformation
 
 
 # =========================================================================
@@ -762,12 +989,25 @@ class TwoCodeIsland(QWidget):
         # Tray
         self.setup_tray_icon()
 
+        # Companion Brain & Voice
+        self.voice = VoiceEngine.get()
+        self.last_user_activity = time.time()
+        self.is_autonomous_life_enabled = True
+        self.companion_brain = CompanionBrain(self)
+
+        # Autonomous Life & Gaze Engine Timer (Every 3.8s)
+        self.life_timer = QTimer(self)
+        self.life_timer.timeout.connect(self.on_life_tick)
+        self.life_timer.start(3800)
+
         # Connect Signals
         bridge.status_updated.connect(self.on_agent_status)
         bridge.ask_requested.connect(self.on_agent_ask)
         bridge.done_signaled.connect(self.on_agent_done)
         bridge.decision_made.connect(self.on_decision_made)
         bridge.user_chat_response.connect(self.on_chat_response)
+        bridge.speaking_state_changed.connect(self.on_speaking_changed)
+        bridge.companion_replied.connect(self.on_companion_replied)
 
         # Start collapsed as micro droplet
         self.set_collapsed_geometry(animate=False)
@@ -789,6 +1029,9 @@ class TwoCodeIsland(QWidget):
                 with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                     self.sound_enabled = cfg.get("sound_enabled", True)
+                    self.voice_enabled = cfg.get("voice_enabled", True)
+                    if hasattr(self, 'voice'):
+                        self.voice.enabled = self.voice_enabled
                     self.custom_x = cfg.get("pos_x", None)
                     self.custom_y = cfg.get("pos_y", None)
             except Exception:
@@ -798,6 +1041,7 @@ class TwoCodeIsland(QWidget):
         try:
             cfg = {
                 "sound_enabled": self.sound_enabled,
+                "voice_enabled": self.voice.enabled if hasattr(self, 'voice') else True,
                 "pos_x": self.custom_x,
                 "pos_y": self.custom_y
             }
@@ -867,7 +1111,13 @@ class TwoCodeIsland(QWidget):
             event.accept()
 
     def enterEvent(self, event):
+        self.last_user_activity = time.time()
         self.collapse_timer.stop()
+        if self.robo_widget.mode == "sleepy":
+            play_chime("heart")
+            self.apply_emotion("happy")
+            self.robo_widget.set_look_direction(0, 0)
+            self.pill_robo.set_look_direction(0, 0)
         if not self.is_expanded:
             self.expand()
         super().enterEvent(event)
@@ -1061,9 +1311,17 @@ class TwoCodeIsland(QWidget):
         self.btn_center_top.setStyleSheet("background: transparent; border: none; font-size: 11px;")
         self.btn_center_top.clicked.connect(self.reset_position)
 
+        self.btn_voice = QPushButton("🔊" if getattr(self, 'voice', None) and self.voice.enabled else "🔇")
+        self.btn_voice.setFixedSize(22, 22)
+        self.btn_voice.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_voice.setToolTip("Озвучка робота: Вкл / Выкл")
+        self.btn_voice.setStyleSheet("background: transparent; border: none; font-size: 12px;")
+        self.btn_voice.clicked.connect(self.toggle_voice)
+
         top_bar.addWidget(self.btn_home)
         top_bar.addWidget(self.btn_clip)
         top_bar.addWidget(self.btn_clipboard)
+        top_bar.addWidget(self.btn_voice)
         top_bar.addWidget(self.btn_center_top)
 
         top_bar.addStretch()
@@ -1494,8 +1752,73 @@ class TwoCodeIsland(QWidget):
     # INTERACTIONS & EMOTIONS
     # ==============================================================
     def on_robo_poke(self, event):
+        self.last_user_activity = time.time()
         play_chime("heart")
         self.cycle_emotion_manual()
+        if random.random() < 0.45 and hasattr(self, 'voice') and not self.voice.is_speaking:
+            pokes = [
+                "Ой! Щекотно!",
+                "Привет! Я с тобой!",
+                "Люблю, когда ты нажимаешь!",
+                "Всегда на связи!",
+                "Слушаю тебя во все ушки!"
+            ]
+            self.voice.speak(random.choice(pokes))
+
+    def on_speaking_changed(self, is_speaking):
+        self.robo_widget.set_speaking(is_speaking)
+        self.pill_robo.set_speaking(is_speaking)
+
+    def on_companion_replied(self, display_text, emotion):
+        self.chat_display.setText(display_text)
+        self.apply_emotion(emotion)
+
+    def toggle_voice(self):
+        if not hasattr(self, 'voice'):
+            return
+        self.voice.enabled = not self.voice.enabled
+        play_chime("click")
+        if hasattr(self, 'btn_voice'):
+            self.btn_voice.setText("🔊" if self.voice.enabled else "🔇")
+            self.btn_voice.setToolTip("Озвучка: Включена" if self.voice.enabled else "Озвучка: Отключена")
+        self.save_config()
+        if self.voice.enabled:
+            self.voice.speak("Голос включен! Я снова могу говорить.")
+
+    def on_life_tick(self):
+        if not getattr(self, "is_autonomous_life_enabled", True):
+            return
+
+        now = time.time()
+        idle_duration = now - getattr(self, "last_user_activity", now)
+
+        # Do not override real active work or if currently speaking
+        if self.current_state in ["working", "ask"] or (hasattr(self, 'voice') and self.voice.is_speaking):
+            return
+
+        # Nap mode after 120s inactivity
+        if idle_duration > 120:
+            if self.robo_widget.mode != "sleepy":
+                self.apply_emotion("sleepy")
+                self.robo_widget.set_look_direction(0, 0)
+                self.pill_robo.set_look_direction(0, 0)
+            return
+
+        # Spontaneous living behaviors
+        dice = random.random()
+        if dice < 0.42:
+            glances = [(0, 0), (-2.5, 0), (2.5, 0), (0, -1.5), (-1.8, -1.0), (1.8, -1.0)]
+            gx, gy = random.choice(glances)
+            self.robo_widget.set_look_direction(gx, gy)
+            self.pill_robo.set_look_direction(gx, gy)
+        elif dice < 0.72:
+            spontaneous = ["curious", "wink", "happy", "music", "thinking", "gaming", "cool", "idle"]
+            chosen = random.choice(spontaneous)
+            self.apply_emotion(chosen)
+        else:
+            self.apply_emotion("idle")
+            self.robo_widget.set_look_direction(0, 0)
+            self.pill_robo.set_look_direction(0, 0)
 
     def cycle_emotion_manual(self):
         emotions = LiveAnimatedRobo.EMOTIONS_LIST
@@ -1605,60 +1928,60 @@ class TwoCodeIsland(QWidget):
         if not query:
             return
         play_chime("click")
+        self.last_user_activity = time.time()
         self.chat_input.clear()
-        self.chat_display.setText(f"Вы: {query}\n\nAntigravity: Передаю задачу агенту...")
+        self.chat_display.setText(f"<b>Вы:</b> {query}<br><br><b>Луна:</b> <i>Думает...</i>")
         self.apply_emotion("thinking")
 
-        def transmit_thread():
+        def dialogue_worker():
             try:
-                clip = QApplication.clipboard()
-                clip.setText(query)
+                # 1. Conversational Brain response
+                reply, emo, action = self.companion_brain.process(query)
+                time.sleep(0.35)
 
-                hwnds = []
-                def enum_cb(hwnd, extra):
-                    if user32.IsWindowVisible(hwnd):
-                        buf = ctypes.create_unicode_buffer(512)
-                        user32.GetWindowTextW(hwnd, buf, 512)
-                        title = buf.value
-                        if "antigravity" in title.lower():
-                            hwnds.append(hwnd)
-                        else:
-                            pid = ctypes.c_ulong()
-                            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-                            try:
-                                import psutil
-                                p = psutil.Process(pid.value)
-                                if "antigravity" in p.name().lower():
-                                    hwnds.append(hwnd)
-                            except:
-                                pass
-                    return True
+                # 2. Update UI with companion response
+                bridge.companion_replied.emit(f"<b>Вы:</b> {query}<br><br><b>Луна:</b> {reply}", emo)
 
-                user32.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)(enum_cb), 0)
+                # 3. If action callback exists (music, screenshot), execute it on main thread
+                if action:
+                    QTimer.singleShot(150, action)
 
-                if hwnds:
-                    target_hwnd = hwnds[0]
-                    user32.ShowWindow(target_hwnd, 9)
-                    user32.SetForegroundWindow(target_hwnd)
-                    time.sleep(0.25)
-                    # Ctrl + V
-                    user32.keybd_event(0x11, 0, 0, 0)
-                    user32.keybd_event(0x56, 0, 0, 0)
-                    user32.keybd_event(0x56, 0, 2, 0)
-                    user32.keybd_event(0x11, 0, 2, 0)
-                    time.sleep(0.08)
-                    # Enter
-                    user32.keybd_event(0x0D, 0, 0, 0)
-                    user32.keybd_event(0x0D, 0, 2, 0)
+                # 4. Speak aloud!
+                if hasattr(self, 'voice'):
+                    self.voice.speak(reply)
 
-                    ans = f"Вы: {query}\n\n✅ Успешно передано в Antigravity! Задача запущена."
-                else:
-                    ans = f"Вы: {query}\n\n⚠️ Скопировано в буфер. Вставьте в окно Antigravity (Ctrl+V)."
-                bridge.user_chat_response.emit(ans)
+                # 5. If it's a coding/task instruction for Antigravity, also transmit to Antigravity window
+                if any(k in query.lower() for k in ["создай", "напиши", "сделай", "исправь", "почини", "код", "скрипт", "проект", "терминал", "файл"]):
+                    clip = QApplication.clipboard()
+                    clip.setText(query)
+
+                    hwnds = []
+                    def enum_cb(hwnd, extra):
+                        if user32.IsWindowVisible(hwnd):
+                            buf = ctypes.create_unicode_buffer(512)
+                            user32.GetWindowTextW(hwnd, buf, 512)
+                            title = buf.value
+                            if "antigravity" in title.lower():
+                                hwnds.append(hwnd)
+                        return True
+
+                    user32.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_void_p)(enum_cb), 0)
+                    if hwnds:
+                        target_hwnd = hwnds[0]
+                        user32.ShowWindow(target_hwnd, 9)
+                        user32.SetForegroundWindow(target_hwnd)
+                        time.sleep(0.2)
+                        user32.keybd_event(0x11, 0, 0, 0)
+                        user32.keybd_event(0x56, 0, 0, 0)
+                        user32.keybd_event(0x56, 0, 2, 0)
+                        user32.keybd_event(0x11, 0, 2, 0)
+                        time.sleep(0.08)
+                        user32.keybd_event(0x0D, 0, 0, 0)
+                        user32.keybd_event(0x0D, 0, 2, 0)
             except Exception as e:
-                bridge.user_chat_response.emit(f"Вы: {query}\n\n⚠️ Ошибка: {e}")
+                bridge.companion_replied.emit(f"<b>Вы:</b> {query}<br><br>⚠️ {e}", "idle")
 
-        threading.Thread(target=transmit_thread, daemon=True).start()
+        threading.Thread(target=dialogue_worker, daemon=True).start()
 
     def on_chat_response(self, text):
         self.chat_display.setText(text)
@@ -1862,6 +2185,9 @@ class TwoCodeIsland(QWidget):
         for emo in LiveAnimatedRobo.EMOTIONS_LIST:
             act = emo_menu.addAction(emo.capitalize())
             act.triggered.connect(lambda checked, e=emo: self.apply_emotion(e))
+
+        act_voice = menu.addAction("Включить / отключить голос")
+        act_voice.triggered.connect(self.toggle_voice)
 
         menu.addSeparator()
         act_reset = menu.addAction("Сбросить позицию по центру")
