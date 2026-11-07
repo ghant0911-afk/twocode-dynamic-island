@@ -1529,11 +1529,11 @@ class AmbientRoboTabWidget(QWidget):
         layout.addWidget(self.robo, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Status & Speech Bubble
-        self.status_lbl = QLabel("Робот TwoCode: Готов к работе")
-        self.status_lbl.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700;")
+        self.status_lbl = QLabel("✨ Астра (Sendagaya Shino 3D VRM)")
+        self.status_lbl.setStyleSheet("color: #FACC15; font-size: 12px; font-weight: 700;")
         layout.addWidget(self.status_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.speech_bubble = QLabel("«Привет! Я твой живой компаньон на рабочем столе!»")
+        self.speech_bubble = QLabel("«Привет! Я Астра — твой персональный ИИ-ассистент на базе Sendagaya Shino VRM и DeepSeek!»")
         self.speech_bubble.setWordWrap(True)
         self.speech_bubble.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.speech_bubble.setStyleSheet("""
@@ -1607,7 +1607,8 @@ class AmbientRoboTabWidget(QWidget):
 
         # Desktop Mascot Walking & Pet Button
         pet_row = QHBoxLayout()
-        self.pet_btn = QPushButton("🐾 Спрыгнуть на рабочий стол")
+        pet_row.setSpacing(6)
+        self.pet_btn = QPushButton("🐾 Выпустить Астру на рабочий стол")
         self.pet_btn.setFixedHeight(28)
         self.pet_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pet_btn.setStyleSheet("""
@@ -1618,7 +1619,7 @@ class AmbientRoboTabWidget(QWidget):
                 border-radius: 8px;
                 font-size: 10px;
                 font-weight: 700;
-                padding: 4px 10px;
+                padding: 4px 8px;
             }
             QPushButton:hover {
                 background: #38BDF8;
@@ -1627,6 +1628,28 @@ class AmbientRoboTabWidget(QWidget):
         """)
         self.pet_btn.clicked.connect(self.pet_toggled.emit)
         pet_row.addWidget(self.pet_btn)
+
+        self.vrm_btn = QPushButton("🌐 3D VRM Модель")
+        self.vrm_btn.setFixedHeight(28)
+        self.vrm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.vrm_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3B0764, stop:1 #1E1B4B);
+                color: #C084FC;
+                border: 1px solid rgba(192, 132, 252, 0.4);
+                border-radius: 8px;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 4px 8px;
+            }
+            QPushButton:hover {
+                background: #A855F7;
+                color: #FFFFFF;
+            }
+        """)
+        import webbrowser
+        self.vrm_btn.clicked.connect(lambda: webbrowser.open("http://127.0.0.1:8098/vrm_viewer.html"))
+        pet_row.addWidget(self.vrm_btn)
         layout.addLayout(pet_row)
 
         # DeepSeek AI Chat & Task Execution Row

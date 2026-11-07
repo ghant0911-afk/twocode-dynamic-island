@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Astra 3D VRM Viewer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at 50% 30%, #1e1b2e 0%, #0d0e15 100%);
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    .hud {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 10;
+      background: rgba(18, 20, 29, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(139, 92, 246, 0.3);
+      border-radius: 14px;
+      padding: 16px 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      max-width: 320px;
+    }
+    .hud h2 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #c4b5fd;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .hud p {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 14px;
+      line-height: 1.4;
+    }
+    select, button {
+      width: 100%;
+      padding: 8px 12px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: #1e2235;
+      color: #fff;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    select:hover, button:hover {
+      border-color: #a78bfa;
+      background: #282d45;
+    }
+    .controls-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .btn-action {
+      background: rgba(139, 92, 246, 0.2);
+      border: 1px solid rgba(139, 92, 246, 0.4);
+      color: #c4b5fd;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .btn-action:hover {
+      background: #8b5cf6;
+      color: #fff;
+    }
+    #loading {
+      position: absolute;
+      bottom: 25px;
+      right: 25px;
+      background: rgba(15, 23, 42, 0.85);
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      display: none;
+    }
+  </style>
+
+  <!-- Import maps polyfill -->
+  <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+        "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@2.0.6/lib/three-vrm.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+
+  <div class="hud">
+    <h2>✨ Astra 3D VRM Companion</h2>
+    <p>3D аватар помощника с анимацией дыхания, моргания и синхронизацией губ (лип-синк).</p>
+    
+    <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Выберите 3D VRM модель:</label>
+    <select id="model-select">
+      <option value="Sendagaya_Shino.vrm" selected>Sendagaya Shino (Астра / Стритвир & Худи)</option>
+      <option value="AvatarSample_B.vrm">AvatarSample_B (Астра / Стелла)</option>
+      <option value="AvatarSample_A.vrm">AvatarSample_A (Кибер Твинтейл)</option>
+      <option value="Victoria_Rubin.vrm">Victoria Rubin (VTuber Princess)</option>
+      <option value="AvatarSample_C.vrm">AvatarSample_C (Cyber Dark)</option>
+    </select>
+
+    <div class="controls-grid">
+      <button class="btn-action" id="btn-smile">😊 Улыбка</button>
+      <button class="btn-action" id="btn-joy">🎉 Радость</button>
+      <button class="btn-action" id="btn-talk">🗣️ Говорить (Лип-синк)</button>
+      <button class="btn-action" id="btn-reset">🔄 Сброс</button>
+    </div>
+  </div>
+
+  <div id="loading">⏳ Загрузка 3D модели...</div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+    const container = document.getElementById('canvas-container');
+    const loadingElem = document.getElementById('loading');
+
+    // 1. Renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    container.appendChild(renderer.domElement);
+
+    // 2. Camera & Scene
+    const camera = new THREE.PerspectiveCamera(30.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
+    camera.position.set(0.0, 1.25, 2.2);
+
+    const scene = new THREE.Scene();
+
+    // 3. Lighting
+    const light = new THREE.DirectionalLight(0xffffff, 1.2);
+    light.position.set(1.0, 2.0, 1.0).normalize();
+    scene.add(light);
+
+    const ambientLight = new THREE.AmbientLight(0xffe4e6, 0.85);
+    scene.add(ambientLight);
+
+    const backLight = new THREE.DirectionalLight(0x818cf8, 0.7);
+    backLight.position.set(-1.0, 1.0, -1.0).normalize();
+    scene.add(backLight);
+
+    // 4. Controls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.screenSpacePanning = true;
+    controls.target.set(0.0, 1.1, 0.0);
+    controls.update();
+
+    let currentVRM = null;
+    let isTalking = false;
+    let talkTimer = 0;
+
+    // 5. GLTF + VRM Loader
+    const loader = new GLTFLoader();
+    loader.register((parser) => new VRMLoaderPlugin(parser));
+
+    function loadModel(vrmUrl) {
+      loadingElem.style.display = 'block';
+      if (currentVRM) {
+        scene.remove(currentVRM.scene);
+        VRMUtils.deepDispose(currentVRM.scene);
+        currentVRM = null;
+      }
+
+      loader.load(
+        vrmUrl,
+        (gltf) => {
+          const vrm = gltf.userData.vrm;
+          VRMUtils.removeUnnecessaryVertices(gltf.scene);
+          VRMUtils.removeUnnecessaryJoints(gltf.scene);
+
+          scene.add(vrm.scene);
+          currentVRM = vrm;
+          loadingElem.style.display = 'none';
+
+          // Rotate model to face camera
+          vrm.scene.rotation.y = Math.PI;
+
+          console.log('VRM Loaded successfully:', vrm);
+        },
+        (progress) => {
+          const percent = Math.round((progress.loaded / (progress.total || 15000000)) * 100);
+          loadingElem.innerText = `⏳ Загрузка 3D модели... ${percent}%`;
+        },
+        (error) => {
+          console.error('Error loading VRM:', error);
+          loadingElem.innerText = `❌ Ошибка загрузки модели`;
+        }
+      );
+    }
+
+    // Load initial model (Sendagaya Shino)
+    loadModel('Sendagaya_Shino.vrm');
+
+    document.getElementById('model-select').addEventListener('change', (e) => {
+      loadModel(e.target.value);
+    });
+
+    // Expression buttons
+    document.getElementById('btn-smile').addEventListener('click', () => {
+      if (!currentVRM?.expressionManager) return;
+      currentVRM.expressionManager.setValue('happy', 1.0);
+      setTimeout(() => currentVRM?.expressionManager?.setValue('happy', 0.0), 3000);
+    });
+
+    document.getElementById('btn-joy').addEventListener('click', () => {
+      if (!currentVRM?.expressionManager) return;
+      currentVRM.expressionManager.setValue('relaxed', 1.0);
+      currentVRM.expressionManager.setValue('surprised', 0.5);
+      setTimeout(() => {
+        currentVRM?.expressionManager?.setValue('relaxed', 0.0);
+        currentVRM?.expressionManager?.setValue('surprised', 0.0);
+      }, 3000);
+    });
+
+    document.getElementById('btn-talk').addEventListener('click', () => {
+      isTalking = !isTalking;
+      document.getElementById('btn-talk').innerText = isTalking ? '⏹️ Стоп' : '🗣️ Говорить (Лип-синк)';
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      if (!currentVRM?.expressionManager) return;
+      isTalking = false;
+      document.getElementById('btn-talk').innerText = '🗣️ Говорить (Лип-синк)';
+      currentVRM.expressionManager.setValue('aa', 0);
+      currentVRM.expressionManager.setValue('ih', 0);
+      currentVRM.expressionManager.setValue('ou', 0);
+      currentVRM.expressionManager.setValue('happy', 0);
+      currentVRM.expressionManager.setValue('relaxed', 0);
+      currentVRM.expressionManager.setValue('surprised', 0);
+    });
+
+    // 6. Animation loop
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      if (currentVRM) {
+        currentVRM.update(delta);
+
+        // Natural eye blinking
+        const blinkCycle = Math.sin(time * 1.5);
+        if (blinkCycle > 0.96) {
+          const blinkVal = Math.sin((blinkCycle - 0.96) / 0.04 * Math.PI);
+          currentVRM.expressionManager?.setValue('blink', blinkVal);
+        } else {
+          currentVRM.expressionManager?.setValue('blink', 0.0);
+        }
+
+        // Lip-sync speech oscillation
+        if (isTalking) {
+          talkTimer += delta * 12.0;
+          const openA = (Math.sin(talkTimer) + 1.0) * 0.45;
+          const openO = (Math.cos(talkTimer * 0.8) + 1.0) * 0.35;
+          currentVRM.expressionManager?.setValue('aa', openA);
+          currentVRM.expressionManager?.setValue('oh', openO);
+        }
+
+        // Gentle breathing (Spine & Chest)
+        const spine = currentVRM.humanoid?.getNormalizedBoneNode('spine');
+        if (spine) {
+          spine.rotation.x = Math.sin(time * 1.8) * 0.025;
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

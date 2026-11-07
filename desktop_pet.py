@@ -138,6 +138,9 @@ class DesktopRoboPet(QWidget):
         self.forced_music = False
         self.state = self.STATE_IDLE
         self.facing_direction = 1  # 1 = Right, -1 = Left
+        self.character = "shino"   # "shino" (Sendagaya Shino / Astra VRM) or "robo"
+        self.is_speaking = False
+        self.speech_tick = 0.0
 
         # Animation Ticks & Kinematics
         self.anim_tick = 0
@@ -515,6 +518,22 @@ class DesktopRoboPet(QWidget):
             }
         """)
 
+        # Character Mode Toggle
+        if self.character == "shino":
+            act_char = QAction("🤖 Переключить на Робота TwoCode", self)
+            act_char.triggered.connect(lambda: self.set_character("robo"))
+        else:
+            act_char = QAction("✨ Переключить на Астру (Shino 3D VRM)", self)
+            act_char.triggered.connect(lambda: self.set_character("shino"))
+        menu.addAction(act_char)
+
+        # 3D VRM Viewer in browser
+        act_vrm = QAction("🌐 Открыть 3D VRM в браузере", self)
+        act_vrm.triggered.connect(lambda: self.open_vrm_viewer())
+        menu.addAction(act_vrm)
+
+        menu.addSeparator()
+
         # Music Headphones Toggle
         act_music = QAction("🎧 Наушники: Вкл" if not self.has_headphones else "🎧 Снять наушники", self)
         act_music.triggered.connect(lambda: self.set_forced_headphones(not self.has_headphones))
@@ -548,6 +567,14 @@ class DesktopRoboPet(QWidget):
         menu.addAction(act_hide)
 
         menu.exec(event.globalPos())
+
+    def set_character(self, char_name):
+        self.character = char_name
+        self.update()
+
+    def open_vrm_viewer(self):
+        import webbrowser
+        webbrowser.open("http://127.0.0.1:8098/vrm_viewer.html")
 
     def _set_manual_state(self, new_state):
         self.state = new_state
@@ -753,6 +780,30 @@ class DesktopRoboPet(QWidget):
         p.drawEllipse(QRectF(-4.5 * s, 16 * s, 9 * s, 9 * s))
         p.restore()
 
+        # Sendagaya Shino Back Hair (flowing blonde strands behind torso)
+        hair_sway = math.sin(self.anim_tick * 0.08) * 4.0
+        if getattr(self, 'character', 'shino') == 'shino':
+            p.save()
+            p.translate(0, -16 * s + head_bob)
+            p.rotate(head_tilt * 0.5)
+            hair_back_grad = QLinearGradient(0, -10 * s, 0, 34 * s)
+            hair_back_grad.setColorAt(0.0, QColor('#FEF08A'))
+            hair_back_grad.setColorAt(0.55, QColor('#FDE047'))
+            hair_back_grad.setColorAt(1.0, QColor('#D97706'))
+            p.setBrush(QBrush(hair_back_grad))
+            p.setPen(Qt.PenStyle.NoPen)
+            back_hair_l = QPainterPath()
+            back_hair_l.moveTo(-18 * s, -2 * s)
+            back_hair_l.cubicTo(-28 * s + hair_sway, 12 * s, -25 * s + hair_sway * 1.5, 32 * s, -14 * s + hair_sway, 36 * s)
+            back_hair_l.cubicTo(-19 * s, 25 * s, -17 * s, 12 * s, -12 * s, 2 * s)
+            p.drawPath(back_hair_l)
+            back_hair_r = QPainterPath()
+            back_hair_r.moveTo(18 * s, -2 * s)
+            back_hair_r.cubicTo(28 * s + hair_sway, 12 * s, 25 * s + hair_sway * 1.5, 32 * s, 14 * s + hair_sway, 36 * s)
+            back_hair_r.cubicTo(19 * s, 25 * s, 17 * s, 12 * s, 12 * s, 2 * s)
+            p.drawPath(back_hair_r)
+            p.restore()
+
         # Main Hoodie Torso
         hoodie_grad = QLinearGradient(0, -2 * s, 0, 28 * s)
         hoodie_grad.setColorAt(0.0, QColor('#F43F5E'))  # Bright scarlet highlight
@@ -790,148 +841,323 @@ class DesktopRoboPet(QWidget):
         p.restore()
 
         # -------------------------------------------------------------
-        # 4. TwoCode Robot Head (with optional Headphones)
+        # 4. Companion Head (Sendagaya Shino 3D VRM / TwoCode Robot)
         # -------------------------------------------------------------
         p.save()
         p.translate(0, -18 * s + head_bob)
         p.rotate(head_tilt)
 
-        # Ear Pods
-        p.setBrush(QBrush(QColor('#E2E8F0')))
-        p.setPen(QPen(QColor('#CBD5E1'), max(1, int(1.2 * s))))
-        p.drawRoundedRect(QRectF(-26.5 * s, -6 * s, 5.5 * s, 13 * s), 2.5 * s, 2.5 * s)
-        p.drawRoundedRect(QRectF(21.0 * s, -6 * s, 5.5 * s, 13 * s), 2.5 * s, 2.5 * s)
-
-        # Curved Antenna
-        ant_path = QPainterPath()
-        ant_path.moveTo(0, -17 * s)
-        ant_path.cubicTo(0, -22 * s, 1.5 * s, -25 * s, 1.0 * s, -28 * s)
-        p.setPen(QPen(QColor('#E2E8F0'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawPath(ant_path)
-
-        # Antenna Glowing Orb
-        orb_center = QPointF(1.0 * s, -29 * s)
-        orb_col = QColor('#1DB954') if self.has_headphones else QColor('#5CE07A')
-        p.setBrush(QBrush(orb_col))
-        p.setPen(QPen(QColor('#FFFFFF'), max(1, int(0.8 * s))))
-        p.drawEllipse(orb_center, 3.8 * s, 3.8 * s)
-
-        # Head Body
-        head_grad = QLinearGradient(0, -18 * s, 0, 18 * s)
-        head_grad.setColorAt(0.0, QColor('#FFFFFF'))
-        head_grad.setColorAt(0.65, QColor('#F8FAFC'))
-        head_grad.setColorAt(1.0, QColor('#E2E8F0'))
-        p.setBrush(QBrush(head_grad))
-        p.setPen(QPen(QColor('#CBD5E1'), max(1, int(1.2 * s))))
-        p.drawRoundedRect(QRectF(-23 * s, -17 * s, 46 * s, 35 * s), 16 * s, 16 * s)
-
-        # Dark Visor
-        visor_rect = QRectF(-18 * s, -11 * s, 36 * s, 24 * s)
-        v_grad = QLinearGradient(0, -11 * s, 0, 13 * s)
-        v_grad.setColorAt(0.0, QColor('#181820'))
-        v_grad.setColorAt(1.0, QColor('#0D0D12'))
-        p.setBrush(QBrush(v_grad))
-        p.setPen(QPen(QColor('#252530'), max(1, int(0.8 * s))))
-        p.drawRoundedRect(visor_rect, 10 * s, 10 * s)
-
-        # Visor Upper Glass Reflection
-        p.setBrush(QColor(255, 255, 255, 32))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(QRectF(-12 * s, -9.5 * s, 24 * s, 4 * s), 2 * s, 2 * s)
-
-        # Visor Eyes Rendering based on state
-        if self.state in [self.STATE_PICKED_UP, self.STATE_FALLING]:
-            # Surprised wide eyes O O
-            p.setBrush(QColor('#5CE07A'))
+        if getattr(self, 'character', 'shino') == 'shino':
+            # === SENDAGAYA SHINO (ASTRA 3D VRM AVATAR) ===
+            # Neck
+            p.setBrush(QBrush(QColor('#FCE7F3')))
             p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QRectF(-14 * s, -6 * s, 9 * s, 10 * s))
-            p.drawEllipse(QRectF(5 * s, -6 * s, 9 * s, 10 * s))
-            p.setBrush(QColor('#FFFFFF'))
-            p.drawEllipse(QRectF(-11.5 * s, -4 * s, 3.5 * s, 3.5 * s))
-            p.drawEllipse(QRectF(7.5 * s, -4 * s, 3.5 * s, 3.5 * s))
+            p.drawRect(QRectF(-4 * s, 8 * s, 8 * s, 6 * s))
 
-        elif self.state == self.STATE_HURT:
-            # Comic dizzy spiral eyes @ @ + dazed sweat blush
-            p.setPen(QPen(QColor('#FFD700'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            rot = self.anim_tick * 0.16
-            for offset_x in [-9.5 * s, 9.5 * s]:
-                for stp in range(3):
-                    angle_start = int((rot + stp * 1.8) * 180 / math.pi) % 360
-                    rad = (2.2 + stp * 2.2) * s
-                    p.drawArc(QRectF(offset_x - rad, -1.0 * s - rad, rad * 2, rad * 2), angle_start * 16, 120 * 16)
-            # Dizzy blue blush
-            p.setBrush(QColor(80, 180, 255, 150))
+            # Face base (smooth cute anime head with chin taper)
+            face_path = QPainterPath()
+            face_path.moveTo(-19 * s, -12 * s)
+            face_path.cubicTo(-21 * s, 2 * s, -17 * s, 14 * s, 0, 18 * s)
+            face_path.cubicTo(17 * s, 14 * s, 21 * s, 2 * s, 19 * s, -12 * s)
+            face_path.cubicTo(15 * s, -22 * s, -15 * s, -22 * s, -19 * s, -12 * s)
+
+            face_grad = QLinearGradient(0, -18 * s, 0, 18 * s)
+            face_grad.setColorAt(0.0, QColor('#FFF7ED'))
+            face_grad.setColorAt(0.7, QColor('#FFEAE2'))
+            face_grad.setColorAt(1.0, QColor('#FED7AA'))
+            p.setBrush(QBrush(face_grad))
+            p.setPen(QPen(QColor('#FBCFE8'), max(1, int(1.0 * s))))
+            p.drawPath(face_path)
+
+            # Warm Cheeks Blush
+            p.setBrush(QColor(255, 130, 160, 120))
             p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QRectF(-15.5 * s, 1.5 * s, 4.0 * s, 3.0 * s))
-            p.drawEllipse(QRectF(11.5 * s, 1.5 * s, 4.0 * s, 3.0 * s))
+            p.drawEllipse(QRectF(-16 * s, 2 * s, 7 * s, 4 * s))
+            p.drawEllipse(QRectF(9 * s, 2 * s, 7 * s, 4 * s))
 
-        elif self.has_headphones and self.state == self.STATE_DANCE:
-            # Happy closed music eyes ^ ^ + pink blush
-            p.setPen(QPen(QColor('#1DB954'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            p.drawArc(QRectF(-14 * s, -7 * s, 8 * s, 6 * s), 20 * 16, 140 * 16)
-            p.drawArc(QRectF(6 * s, -7 * s, 8 * s, 6 * s), 20 * 16, 140 * 16)
-            # Music blush
-            p.setBrush(QColor(255, 80, 150, 150))
+            # Eyes based on state
+            if self.state == self.STATE_HURT:
+                # Comic dizzy spiral eyes @ @
+                p.setPen(QPen(QColor('#D97706'), max(1, int(2.2 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                rot = self.anim_tick * 0.16
+                for offset_x in [-9.5 * s, 9.5 * s]:
+                    for stp in range(3):
+                        angle_start = int((rot + stp * 1.8) * 180 / math.pi) % 360
+                        rad = (2.0 + stp * 2.0) * s
+                        p.drawArc(QRectF(offset_x - rad, -2.0 * s - rad, rad * 2, rad * 2), angle_start * 16, 120 * 16)
+                p.setBrush(QColor(96, 165, 250, 140))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawEllipse(QRectF(-15.5 * s, 1.5 * s, 5.0 * s, 3.5 * s))
+                p.drawEllipse(QRectF(10.5 * s, 1.5 * s, 5.0 * s, 3.5 * s))
+                sw_path = QPainterPath()
+                sw_path.moveTo(17 * s, -14 * s)
+                sw_path.cubicTo(19 * s, -11 * s, 21 * s, -9 * s, 21 * s, -7 * s)
+                sw_path.cubicTo(21 * s, -5 * s, 19 * s, -4 * s, 17 * s, -4 * s)
+                sw_path.cubicTo(15 * s, -4 * s, 13 * s, -5 * s, 13 * s, -7 * s)
+                sw_path.cubicTo(13 * s, -9 * s, 15 * s, -11 * s, 17 * s, -14 * s)
+                p.setBrush(QBrush(QColor('#38BDF8')))
+                p.drawPath(sw_path)
+
+            elif self.state in [self.STATE_PICKED_UP, self.STATE_FALLING]:
+                # Surprised wide anime eyes (O . O)
+                for ex in [-10 * s, 10 * s]:
+                    p.setBrush(QBrush(QColor('#FFFFFF')))
+                    p.setPen(QPen(QColor('#451A03'), max(1, int(1.2 * s))))
+                    p.drawEllipse(QRectF(ex - 4.5 * s, -6 * s, 9 * s, 10 * s))
+                    p.setBrush(QBrush(QColor('#D97706')))
+                    p.drawEllipse(QRectF(ex - 3.0 * s, -4 * s, 6 * s, 7 * s))
+                    p.setBrush(QBrush(QColor('#FFFFFF')))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.drawEllipse(QRectF(ex - 1.5 * s, -3.5 * s, 2.5 * s, 2.5 * s))
+                    p.drawEllipse(QRectF(ex + 0.5 * s, -1.0 * s, 1.2 * s, 1.2 * s))
+
+            elif self.has_headphones and self.state == self.STATE_DANCE:
+                # Happy joyful closed eyes ^ ^
+                p.setPen(QPen(QColor('#451A03'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                path_l = QPainterPath()
+                path_l.moveTo(-14 * s, -2 * s)
+                path_l.cubicTo(-10 * s, -7 * s, -9 * s, -7 * s, -5 * s, -2 * s)
+                p.drawPath(path_l)
+                path_r = QPainterPath()
+                path_r.moveTo(5 * s, -2 * s)
+                path_r.cubicTo(9 * s, -7 * s, 10 * s, -7 * s, 14 * s, -2 * s)
+                p.drawPath(path_r)
+
+            elif self.is_blinking:
+                p.setPen(QPen(QColor('#451A03'), max(1, int(2.0 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                p.drawLine(int(-13 * s), int(-2 * s), int(-6 * s), int(-2 * s))
+                p.drawLine(int(6 * s), int(-2 * s), int(13 * s), int(-2 * s))
+
+            else:
+                # Normal anime eyes with amber-hazel iris
+                for ex, is_left in [(-10 * s, True), (10 * s, False)]:
+                    p.setPen(QPen(QColor('#451A03'), max(1, int(2.0 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                    lash = QPainterPath()
+                    lash.moveTo(ex - 5 * s, -4 * s)
+                    lash.cubicTo(ex - 2 * s, -7 * s, ex + 2 * s, -7 * s, ex + 5 * s, -4 * s)
+                    p.drawPath(lash)
+
+                    iris_grad = QLinearGradient(ex, -6 * s, ex, 3 * s)
+                    iris_grad.setColorAt(0.0, QColor('#78350F'))
+                    iris_grad.setColorAt(0.45, QColor('#B45309'))
+                    iris_grad.setColorAt(0.85, QColor('#D97706'))
+                    iris_grad.setColorAt(1.0, QColor('#F59E0B'))
+                    p.setBrush(QBrush(iris_grad))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.drawRoundedRect(QRectF(ex - 4 * s, -4 * s, 8 * s, 8.5 * s), 4 * s, 4 * s)
+
+                    p.setBrush(QBrush(QColor('#1C1917')))
+                    p.drawEllipse(QRectF(ex - 2 * s, -2 * s, 4 * s, 4 * s))
+
+                    p.setBrush(QBrush(QColor('#FFFFFF')))
+                    p.drawEllipse(QRectF(ex - 2.5 * s, -3.5 * s, 2.5 * s, 2.5 * s))
+                    p.drawEllipse(QRectF(ex + 1.0 * s, 0.5 * s, 1.4 * s, 1.4 * s))
+
+            # Cute Nose
+            p.setPen(QPen(QColor('#F472B6'), max(1, int(1.2 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawPoint(QPointF(0, 4 * s))
+
+            # Animated Mouth with Lip-Sync
+            if self.state == self.STATE_HURT:
+                p.setPen(QPen(QColor('#881337'), max(1, int(1.6 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                m_path = QPainterPath()
+                m_path.moveTo(-4 * s, 9 * s)
+                m_path.cubicTo(-2 * s, 11 * s, 2 * s, 7 * s, 4 * s, 9 * s)
+                p.drawPath(m_path)
+            elif self.state in [self.STATE_PICKED_UP, self.STATE_FALLING]:
+                p.setBrush(QBrush(QColor('#E11D48')))
+                p.setPen(QPen(QColor('#881337'), max(1, int(1.2 * s))))
+                p.drawEllipse(QRectF(-2.5 * s, 7.5 * s, 5 * s, 5 * s))
+            elif getattr(self, 'is_speaking', False) or (self.state == self.STATE_DANCE and (self.anim_tick % 24 < 12)):
+                # Real speech lip-sync visemes
+                mouth_open = (math.sin(self.anim_tick * 0.45) + 1.0) * 0.5
+                p.setBrush(QBrush(QColor('#F43F5E')))
+                p.setPen(QPen(QColor('#881337'), max(1, int(1.2 * s))))
+                p.drawEllipse(QRectF(-3.0 * s, 7.5 * s, 6.0 * s, (3.0 + mouth_open * 4.0) * s))
+            elif self.state == self.STATE_DANCE:
+                p.setBrush(QBrush(QColor('#F43F5E')))
+                p.setPen(QPen(QColor('#881337'), max(1, int(1.2 * s))))
+                m_path = QPainterPath()
+                m_path.moveTo(-4 * s, 8 * s)
+                m_path.cubicTo(-2 * s, 12 * s, 2 * s, 12 * s, 4 * s, 8 * s)
+                m_path.closeSubpath()
+                p.drawPath(m_path)
+            else:
+                p.setPen(QPen(QColor('#BE185D'), max(1, int(1.5 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                m_path = QPainterPath()
+                m_path.moveTo(-3 * s, 8.5 * s)
+                m_path.cubicTo(-1 * s, 10.5 * s, 1 * s, 10.5 * s, 3 * s, 8.5 * s)
+                p.drawPath(m_path)
+
+            # Sendagaya Shino Blonde Front Bangs
+            hair_front_grad = QLinearGradient(0, -22 * s, 0, 8 * s)
+            hair_front_grad.setColorAt(0.0, QColor('#FEF08A'))
+            hair_front_grad.setColorAt(0.40, QColor('#FDE047'))
+            hair_front_grad.setColorAt(1.0, QColor('#D97706'))
+            p.setBrush(QBrush(hair_front_grad))
             p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QRectF(-15.5 * s, 1.0 * s, 4.5 * s, 3.5 * s))
-            p.drawEllipse(QRectF(11.0 * s, 1.0 * s, 4.5 * s, 3.5 * s))
 
-        elif self.state == self.STATE_SIT:
-            # Relaxed sleepy eyes - -
-            p.setPen(QPen(QColor('#5CE07A'), max(1, int(2.2 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            p.drawLine(int(-13 * s), int(-1 * s), int(-6 * s), int(-1 * s))
-            p.drawLine(int(6 * s), int(-1 * s), int(13 * s), int(-1 * s))
+            bangs = QPainterPath()
+            bangs.moveTo(-20 * s, -12 * s)
+            bangs.cubicTo(-18 * s, -24 * s, 18 * s, -24 * s, 20 * s, -12 * s)
+            bangs.cubicTo(19 * s, -2 * s, 16 * s + hair_sway * 0.3, 2 * s, 15 * s + hair_sway * 0.4, 7 * s)
+            bangs.lineTo(12 * s, -4 * s)
+            bangs.cubicTo(10 * s, -1 * s, 6 * s, 0, 4 * s, 2 * s)
+            bangs.lineTo(2 * s, -5 * s)
+            bangs.cubicTo(0, -1 * s, -2 * s, 0, -4 * s, 2 * s)
+            bangs.lineTo(-6 * s, -4 * s)
+            bangs.cubicTo(-10 * s, 0, -14 * s + hair_sway * 0.3, 2 * s, -16 * s + hair_sway * 0.4, 7 * s)
+            bangs.cubicTo(-18 * s, 0, -19 * s, -6 * s, -20 * s, -12 * s)
+            p.drawPath(bangs)
 
-        elif self.is_blinking:
-            # Blinking closed line eyes
-            p.setPen(QPen(QColor('#5CE07A'), max(1, int(2.0 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            p.drawLine(int(-13 * s), int(-1 * s), int(-6 * s), int(-1 * s))
-            p.drawLine(int(6 * s), int(-1 * s), int(13 * s), int(-1 * s))
+            # Dark Hair Clip
+            p.setBrush(QBrush(QColor('#1E1B4B')))
+            p.setPen(QPen(QColor('#475569'), max(1, int(0.8 * s))))
+            p.drawRoundedRect(QRectF(11 * s, -13 * s, 7 * s, 2.5 * s), 1.2 * s, 1.2 * s)
+
+            # Cyber Cat-Ear Gaming Headphones (RGB glowing)
+            if self.has_headphones:
+                p.setPen(QPen(QColor('#1E1E24'), max(1, int(3.5 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                band_path = QPainterPath()
+                band_path.moveTo(-20 * s, -10 * s)
+                band_path.cubicTo(-19 * s, -27 * s, 19 * s, -27 * s, 20 * s, -10 * s)
+                p.drawPath(band_path)
+
+                for side, ex in [(-1, -22 * s), (1, 22 * s)]:
+                    p.setBrush(QBrush(QColor('#18181B')))
+                    p.setPen(QPen(QColor('#27272A'), max(1, int(1.2 * s))))
+                    p.drawRoundedRect(QRectF(ex - 3.5 * s, -12 * s, 7 * s, 15 * s), 3.5 * s, 3.5 * s)
+                    glow_col = QColor('#00F0FF') if side == -1 else QColor('#FF007F')
+                    p.setBrush(QBrush(glow_col))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.drawEllipse(QRectF(ex - 2 * s, -6 * s, 4 * s, 6 * s))
+
+                for side, ear_x in [(-1, -12 * s), (1, 12 * s)]:
+                    ear_path = QPainterPath()
+                    ear_path.moveTo(ear_x - 5 * s, -23 * s)
+                    ear_path.lineTo(ear_x, -33 * s)
+                    ear_path.lineTo(ear_x + 5 * s, -21 * s)
+                    ear_path.closeSubpath()
+                    p.setBrush(QBrush(QColor('#1E1E24')))
+                    p.setPen(QPen(QColor('#27272A'), max(1, int(1.0 * s))))
+                    p.drawPath(ear_path)
+
+                    inner_ear = QPainterPath()
+                    inner_ear.moveTo(ear_x - 3 * s, -24 * s)
+                    inner_ear.lineTo(ear_x, -31 * s)
+                    inner_ear.lineTo(ear_x + 3 * s, -22.5 * s)
+                    inner_ear.closeSubpath()
+                    ear_neon = QColor('#00F0FF') if side == -1 else QColor('#FF007F')
+                    p.setBrush(QBrush(ear_neon))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.drawPath(inner_ear)
 
         else:
-            # Normal TwoCode oval emerald eyes with pupil gleam
-            p.setBrush(QColor('#5CE07A'))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.drawRoundedRect(QRectF(-13.5 * s, -6 * s, 8 * s, 10 * s), 3.5 * s, 3.5 * s)
-            p.drawRoundedRect(QRectF(5.5 * s, -6 * s, 8 * s, 10 * s), 3.5 * s, 3.5 * s)
-            p.setBrush(QColor('#FFFFFF'))
-            p.drawEllipse(QRectF(-11.5 * s, -4.5 * s, 2.5 * s, 2.5 * s))
-            p.drawEllipse(QRectF(7.5 * s, -4.5 * s, 2.5 * s, 2.5 * s))
+            # === TWOCODE ROBOT HEAD ===
+            p.setBrush(QBrush(QColor('#E2E8F0')))
+            p.setPen(QPen(QColor('#CBD5E1'), max(1, int(1.2 * s))))
+            p.drawRoundedRect(QRectF(-26.5 * s, -6 * s, 5.5 * s, 13 * s), 2.5 * s, 2.5 * s)
+            p.drawRoundedRect(QRectF(21.0 * s, -6 * s, 5.5 * s, 13 * s), 2.5 * s, 2.5 * s)
 
-        # -------------------------------------------------------------
-        # 5. Over-Ear Headphones (If music is playing or forced)
-        # -------------------------------------------------------------
-        if self.has_headphones:
-            hp_band_col = QColor('#181A20')
-            hp_cup_col = QColor('#252834')
-            hp_glow_col = QColor('#1DB954')  # Spotify green ring
-
-            # Headband Arch over top of head
-            band_path = QPainterPath()
-            band_path.moveTo(-24 * s, -5 * s)
-            band_path.cubicTo(-25 * s, -24 * s, 25 * s, -24 * s, 24 * s, -5 * s)
-            p.setPen(QPen(hp_band_col, max(2, int(4.5 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            ant_path = QPainterPath()
+            ant_path.moveTo(0, -17 * s)
+            ant_path.cubicTo(0, -22 * s, 1.5 * s, -25 * s, 1.0 * s, -28 * s)
+            p.setPen(QPen(QColor('#E2E8F0'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawPath(band_path)
+            p.drawPath(ant_path)
 
-            # Left Headphone Cup
-            p.setBrush(QBrush(hp_cup_col))
-            p.setPen(QPen(hp_glow_col, max(1, int(1.8 * s))))
-            p.drawRoundedRect(QRectF(-29.5 * s, -8 * s, 7.5 * s, 17 * s), 3.5 * s, 3.5 * s)
-            # Left cup glowing center ring
-            p.setBrush(QBrush(hp_glow_col))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QRectF(-28 * s, -2.5 * s, 4.5 * s, 6 * s))
+            orb_center = QPointF(1.0 * s, -29 * s)
+            orb_col = QColor('#1DB954') if self.has_headphones else QColor('#5CE07A')
+            p.setBrush(QBrush(orb_col))
+            p.setPen(QPen(QColor('#FFFFFF'), max(1, int(0.8 * s))))
+            p.drawEllipse(orb_center, 3.8 * s, 3.8 * s)
 
-            # Right Headphone Cup
-            p.setBrush(QBrush(hp_cup_col))
-            p.setPen(QPen(hp_glow_col, max(1, int(1.8 * s))))
-            p.drawRoundedRect(QRectF(22.0 * s, -8 * s, 7.5 * s, 17 * s), 3.5 * s, 3.5 * s)
-            # Right cup glowing center ring
-            p.setBrush(QBrush(hp_glow_col))
+            head_grad = QLinearGradient(0, -18 * s, 0, 18 * s)
+            head_grad.setColorAt(0.0, QColor('#FFFFFF'))
+            head_grad.setColorAt(0.65, QColor('#F8FAFC'))
+            head_grad.setColorAt(1.0, QColor('#E2E8F0'))
+            p.setBrush(QBrush(head_grad))
+            p.setPen(QPen(QColor('#CBD5E1'), max(1, int(1.2 * s))))
+            p.drawRoundedRect(QRectF(-23 * s, -17 * s, 46 * s, 35 * s), 16 * s, 16 * s)
+
+            visor_rect = QRectF(-18 * s, -11 * s, 36 * s, 24 * s)
+            v_grad = QLinearGradient(0, -11 * s, 0, 13 * s)
+            v_grad.setColorAt(0.0, QColor('#181820'))
+            v_grad.setColorAt(1.0, QColor('#0D0D12'))
+            p.setBrush(QBrush(v_grad))
+            p.setPen(QPen(QColor('#252530'), max(1, int(0.8 * s))))
+            p.drawRoundedRect(visor_rect, 10 * s, 10 * s)
+
+            p.setBrush(QColor(255, 255, 255, 32))
             p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QRectF(23.5 * s, -2.5 * s, 4.5 * s, 6 * s))
+            p.drawRoundedRect(QRectF(-12 * s, -9.5 * s, 24 * s, 4 * s), 2 * s, 2 * s)
+
+            if self.state in [self.STATE_PICKED_UP, self.STATE_FALLING]:
+                p.setBrush(QColor('#5CE07A'))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawEllipse(QRectF(-14 * s, -6 * s, 9 * s, 10 * s))
+                p.drawEllipse(QRectF(5 * s, -6 * s, 9 * s, 10 * s))
+                p.setBrush(QColor('#FFFFFF'))
+                p.drawEllipse(QRectF(-11.5 * s, -4 * s, 3.5 * s, 3.5 * s))
+                p.drawEllipse(QRectF(7.5 * s, -4 * s, 3.5 * s, 3.5 * s))
+            elif self.state == self.STATE_HURT:
+                p.setPen(QPen(QColor('#FFD700'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                rot = self.anim_tick * 0.16
+                for offset_x in [-9.5 * s, 9.5 * s]:
+                    for stp in range(3):
+                        angle_start = int((rot + stp * 1.8) * 180 / math.pi) % 360
+                        rad = (2.2 + stp * 2.2) * s
+                        p.drawArc(QRectF(offset_x - rad, -1.0 * s - rad, rad * 2, rad * 2), angle_start * 16, 120 * 16)
+                p.setBrush(QColor(80, 180, 255, 150))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawEllipse(QRectF(-15.5 * s, 1.5 * s, 4.0 * s, 3.0 * s))
+                p.drawEllipse(QRectF(11.5 * s, 1.5 * s, 4.0 * s, 3.0 * s))
+            elif self.has_headphones and self.state == self.STATE_DANCE:
+                p.setPen(QPen(QColor('#1DB954'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                p.drawArc(QRectF(-14 * s, -7 * s, 8 * s, 6 * s), 20 * 16, 140 * 16)
+                p.drawArc(QRectF(6 * s, -7 * s, 8 * s, 6 * s), 20 * 16, 140 * 16)
+                p.setBrush(QColor(255, 80, 150, 150))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawEllipse(QRectF(-15.5 * s, 1.0 * s, 4.5 * s, 3.5 * s))
+                p.drawEllipse(QRectF(11.0 * s, 1.0 * s, 4.5 * s, 3.5 * s))
+            elif self.is_blinking:
+                p.setPen(QPen(QColor('#5CE07A'), max(1, int(2.0 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                p.drawLine(int(-13 * s), int(-1 * s), int(-6 * s), int(-1 * s))
+                p.drawLine(int(6 * s), int(-1 * s), int(13 * s), int(-1 * s))
+            else:
+                p.setBrush(QColor('#5CE07A'))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawRoundedRect(QRectF(-13.5 * s, -6 * s, 8 * s, 10 * s), 3.5 * s, 3.5 * s)
+                p.drawRoundedRect(QRectF(5.5 * s, -6 * s, 8 * s, 10 * s), 3.5 * s, 3.5 * s)
+                p.setBrush(QColor('#FFFFFF'))
+                p.drawEllipse(QRectF(-11.5 * s, -4.5 * s, 2.5 * s, 2.5 * s))
+                p.drawEllipse(QRectF(7.5 * s, -4.5 * s, 2.5 * s, 2.5 * s))
+
+            if self.has_headphones:
+                hp_band_col = QColor('#181A20')
+                hp_cup_col = QColor('#252834')
+                hp_glow_col = QColor('#1DB954')
+                band_path = QPainterPath()
+                band_path.moveTo(-24 * s, -5 * s)
+                band_path.cubicTo(-25 * s, -24 * s, 25 * s, -24 * s, 24 * s, -5 * s)
+                p.setPen(QPen(hp_band_col, max(2, int(4.5 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawPath(band_path)
+
+                p.setBrush(QBrush(hp_cup_col))
+                p.setPen(QPen(hp_glow_col, max(1, int(1.8 * s))))
+                p.drawRoundedRect(QRectF(-29.5 * s, -8 * s, 7.5 * s, 17 * s), 3.5 * s, 3.5 * s)
+                p.setBrush(QBrush(hp_glow_col))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawEllipse(QRectF(-28 * s, -2.5 * s, 4.5 * s, 6 * s))
+
+                p.setBrush(QBrush(hp_cup_col))
+                p.setPen(QPen(hp_glow_col, max(1, int(1.8 * s))))
+                p.drawRoundedRect(QRectF(22.0 * s, -8 * s, 7.5 * s, 17 * s), 3.5 * s, 3.5 * s)
+                p.setBrush(QBrush(hp_glow_col))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawEllipse(QRectF(23.5 * s, -2.5 * s, 4.5 * s, 6 * s))
 
         p.restore()  # Restore head
         p.restore()  # Restore origin & flip
