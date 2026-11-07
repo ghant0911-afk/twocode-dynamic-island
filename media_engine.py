@@ -61,7 +61,8 @@ class WindowsMediaWatcher:
                 app_id = session.source_app_user_model_id or ""
                 playback_info = session.get_playback_info()
                 status = playback_info.playback_status if playback_info else 0
-                is_playing = (status == 4 or status == 5) # Playing
+                # GSMTC Status: 4=Playing, 5=Paused
+                is_playing = (status == 4)
 
                 props = await session.try_get_media_properties_async()
                 title = props.title if props and props.title else ""

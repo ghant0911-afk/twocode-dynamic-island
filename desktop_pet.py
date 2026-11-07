@@ -51,6 +51,27 @@ def draw_vector_note(p: QPainter, x: float, y: float, size: float, color: QColor
     p.drawPath(flag_path)
     p.restore()
 
+
+def draw_vector_star(p: QPainter, cx: float, cy: float, r: float, color: QColor):
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setBrush(QBrush(color))
+    p.setPen(Qt.PenStyle.NoPen)
+    path = QPainterPath()
+    points = 4
+    for i in range(points * 2):
+        rad = r if (i % 2 == 0) else (r * 0.42)
+        angle = i * math.pi / points - math.pi / 2
+        px = cx + math.cos(angle) * rad
+        py = cy + math.sin(angle) * rad
+        if i == 0:
+            path.moveTo(px, py)
+        else:
+            path.lineTo(px, py)
+    path.closeSubpath()
+    p.drawPath(path)
+    p.restore()
+
 def draw_vector_double_note(p: QPainter, x: float, y: float, size: float, color: QColor):
     p.save()
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -94,6 +115,7 @@ class DesktopRoboPet(QWidget):
     STATE_PICKED_UP = "picked_up"
     STATE_FALLING = "falling"
     STATE_CELEBRATE = "celebrate"
+    STATE_HURT = "hurt"
 
     def __init__(self, parent=None, size=130):
         super().__init__(parent)
@@ -138,6 +160,11 @@ class DesktopRoboPet(QWidget):
         self.drag_offset = QPoint()
 
         # Behavior AI Timer (State switching)
+        self.dance_style = 0
+        self.dance_switch_timer = 0
+        self.fall_start_y = 0
+        self.hurt_timer = 0
+        self.squash_factor = 1.0
         self.ai_timer = QTimer(self)
         self.ai_timer.setInterval(4000)
         self.ai_timer.timeout.connect(self._ai_decide_next_action)
@@ -168,11 +195,15 @@ class DesktopRoboPet(QWidget):
         if self.forced_music:
             return
         self.has_headphones = is_playing
-        if is_playing and self.state == self.STATE_IDLE:
-            if random.random() < 0.6:
+        if is_playing:
+            if self.state in [self.STATE_IDLE, self.STATE_SIT]:
                 self.state = self.STATE_DANCE
-        elif not is_playing and self.state == self.STATE_DANCE:
-            self.state = self.STATE_IDLE
+                self.dance_style = random.randint(0, 3)
+                self.dance_switch_timer = 0
+        else:
+            # Honest emotions: Stop dancing immediately when music paused!
+            if self.state == self.STATE_DANCE:
+                self.state = self.STATE_IDLE
 
     def set_forced_headphones(self, enabled: bool):
         self.forced_music = enabled
@@ -181,16 +212,18 @@ class DesktopRoboPet(QWidget):
             self.state = self.STATE_DANCE
 
     def _ai_decide_next_action(self):
-        if self.state in [self.STATE_PICKED_UP, self.STATE_FALLING, self.STATE_CELEBRATE]:
+        if self.state in [self.STATE_PICKED_UP, self.STATE_FALLING, self.STATE_CELEBRATE, self.STATE_HURT]:
             return
 
-        # If music is playing, prefer dancing or groovy strolling
+        # If music is playing, rotate between dancing with new styles and walking with headphones
         if self.has_headphones:
-            choices = [self.STATE_DANCE, self.STATE_WALK, self.STATE_DANCE, self.STATE_IDLE]
+            choices = [self.STATE_DANCE, self.STATE_WALK, self.STATE_DANCE]
             self.state = random.choice(choices)
-            if self.state == self.STATE_WALK:
+            if self.state == self.STATE_DANCE:
+                self.dance_style = random.randint(0, 3)
+            elif self.state == self.STATE_WALK:
                 self.facing_direction = random.choice([-1, 1])
-            self.ai_timer.setInterval(random.randint(3000, 6000))
+            self.ai_timer.setInterval(random.randint(3500, 6000))
             return
 
         # Regular state choices
@@ -235,20 +268,40 @@ class DesktopRoboPet(QWidget):
         # Particle management
         self._update_particles()
 
+        # Elastic squash restoration after landing impact
+        if hasattr(self, "squash_factor") and self.squash_factor != 1.0:
+            self.squash_factor += (1.0 - self.squash_factor) * 0.14
+            if abs(self.squash_factor - 1.0) < 0.02:
+                self.squash_factor = 1.0
+
         # Handle States
         if self.state == self.STATE_PICKED_UP:
             self.dangle_phase += 0.25
             self.update()
             return
 
+        elif self.state == self.STATE_HURT:
+            self.hurt_timer -= 1
+            if self.anim_tick % 18 == 0:
+                self.spawn_dizzy_stars(2)
+            if self.hurt_timer <= 0:
+                self.state = self.STATE_IDLE
+                self.squash_factor = 1.0
+                self.spawn_hearts(2)
+
         elif self.state == self.STATE_FALLING:
             self.vy += self.gravity
             new_y = int(self.y() + self.vy)
             if new_y >= self.floor_y:
                 new_y = self.floor_y
+                fall_dist = self.floor_y - getattr(self, "fall_start_y", self.floor_y)
+                impact_speed = self.vy
                 self.vy = 0
-                self.state = self.STATE_IDLE
-                self.spawn_hearts(3)
+                if impact_speed > 5.5 or fall_dist > 50:
+                    self.trigger_fall_damage(fall_dist, impact_speed)
+                else:
+                    self.state = self.STATE_IDLE
+                    self.spawn_hearts(2)
             if new_y != self.y():
                 self.move(self.x(), new_y)
             self.update()
@@ -281,7 +334,11 @@ class DesktopRoboPet(QWidget):
 
         elif self.state == self.STATE_DANCE:
             self.walk_phase += 0.25
-            if self.anim_tick % 20 == 0:
+            self.dance_switch_timer += 1
+            if self.dance_switch_timer > 220:  # Switch dance styles smoothly every ~3.5s
+                self.dance_switch_timer = 0
+                self.dance_style = (self.dance_style + 1) % 4
+            if self.anim_tick % 18 == 0:
                 self.spawn_note()
 
         elif self.state == self.STATE_CELEBRATE:
@@ -292,12 +349,62 @@ class DesktopRoboPet(QWidget):
                 self.state = self.STATE_IDLE
 
         need_paint = (
-            self.state in [self.STATE_WALK, self.STATE_DANCE, self.STATE_PICKED_UP, self.STATE_FALLING, self.STATE_CELEBRATE]
+            self.state in [self.STATE_WALK, self.STATE_DANCE, self.STATE_PICKED_UP, self.STATE_FALLING, self.STATE_CELEBRATE, self.STATE_HURT]
             or self.is_blinking
             or len(self.particles) > 0
+            or getattr(self, "squash_factor", 1.0) != 1.0
         )
         if need_paint:
             self.update()
+
+    def trigger_fall_damage(self, fall_dist, impact_speed):
+        self.state = self.STATE_HURT
+        self.has_headphones = False
+        self.hurt_timer = 180  # ~3 seconds at 60 FPS
+        self.squash_factor = 1.45  # Comic cartoon squash on impact
+        self.spawn_dizzy_stars(5)
+
+        # Comic impact thud
+        try:
+            import winsound
+            winsound.Beep(180, 70)
+            winsound.Beep(130, 80)
+        except Exception:
+            pass
+
+        # Expressive voice reaction via Baya
+        hurt_lines = [
+            "Ой-ёй! За что уронили?!",
+            "Ай! Мои шестерёнки чуть не рассыпались!",
+            "Уф... земля оказалась слишком твёрдой!",
+            "Осторожнее! Я же робот, а не мячик!",
+            "Ох... звёздочки перед глазами кружатся..."
+        ]
+        try:
+            from voice_engine import VoiceEngine
+            VoiceEngine.get().speak(random.choice(hurt_lines))
+        except Exception:
+            pass
+
+    def spawn_dizzy_stars(self, count=4):
+        cx = self.width() / 2.0
+        cy = self.height() / 2.0 - 28
+        for i in range(count):
+            angle = random.uniform(0, math.pi * 2)
+            rad = random.uniform(16.0, 25.0)
+            self.particles.append({
+                "type": "dizzy_star",
+                "center_x": cx,
+                "center_y": cy,
+                "orbit_angle": angle,
+                "orbit_radius": rad,
+                "speed": random.uniform(0.14, 0.22),
+                "alpha": 255,
+                "size": random.uniform(5.5, 8.0),
+                "color": QColor('#FFD700'),
+                "x": cx + math.cos(angle) * rad,
+                "y": cy + math.sin(angle) * (rad * 0.38)
+            })
 
     def spawn_note(self):
         cx = self.width() / 2.0 + (22 if self.facing_direction == 1 else -22)
@@ -332,9 +439,15 @@ class DesktopRoboPet(QWidget):
 
     def _update_particles(self):
         for p in self.particles:
-            p["x"] += p["vx"]
-            p["y"] += p["vy"]
-            p["alpha"] = max(0, p["alpha"] - 6)
+            if p.get("type") == "dizzy_star":
+                p["orbit_angle"] += p["speed"]
+                p["x"] = p["center_x"] + math.cos(p["orbit_angle"]) * p["orbit_radius"]
+                p["y"] = p["center_y"] + math.sin(p["orbit_angle"]) * (p["orbit_radius"] * 0.38)
+                p["alpha"] = max(0, p["alpha"] - 4)
+            else:
+                p["x"] += p["vx"]
+                p["y"] += p["vy"]
+                p["alpha"] = max(0, p["alpha"] - 6)
         self.particles = [p for p in self.particles if p["alpha"] > 0]
 
     # -------------------------------------------------------------------------
@@ -344,6 +457,8 @@ class DesktopRoboPet(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self.dragging = True
             self.state = self.STATE_PICKED_UP
+            self.hurt_timer = 0
+            self.squash_factor = 1.0
             self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
@@ -357,13 +472,13 @@ class DesktopRoboPet(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and self.dragging:
             self.dragging = False
             # Check if dropped in mid-air
-            if self.y() < self.floor_y:
+            if self.y() < self.floor_y - 20:
                 self.state = self.STATE_FALLING
+                self.fall_start_y = self.y()
                 self.vy = 0
             else:
                 self.move(self.x(), self.floor_y)
                 self.state = self.STATE_IDLE
-                self.spawn_hearts(2)
             event.accept()
 
     def mouseDoubleClickEvent(self, event):
@@ -454,7 +569,8 @@ class DesktopRoboPet(QWidget):
         p.translate(w / 2.0, h / 2.0 - 10 * s)
 
         # Facing direction flip (horizontal scale)
-        p.scale(self.facing_direction, 1.0)
+        squash = getattr(self, "squash_factor", 1.0)
+        p.scale(self.facing_direction * squash, (1.0 / squash) if squash != 0 else 1.0)
 
         # Kinematics based on state
         leg_l_angle = 0.0
@@ -475,14 +591,62 @@ class DesktopRoboPet(QWidget):
             string_sway = math.sin(self.walk_phase) * 6.0
             head_bob = math.cos(self.walk_phase * 2.0) * 1.0 * s
 
-        elif self.state == self.STATE_DANCE or (self.has_headphones and self.state == self.STATE_IDLE):
-            dance_t = self.anim_tick * 0.18
-            walk_bob = abs(math.sin(dance_t)) * 4.5 * s
-            arm_l_angle = math.sin(dance_t) * 20.0
-            arm_r_angle = -math.sin(dance_t) * 20.0
-            string_sway = math.sin(dance_t) * 5.0
-            head_tilt = math.sin(dance_t * 0.5) * 8.0
-            head_bob = math.cos(dance_t) * 2.0 * s
+        elif self.state == self.STATE_DANCE:
+            dance_t = self.anim_tick * 0.20
+            style = getattr(self, "dance_style", 0)
+
+            if style == 0:
+                # Style 0: Breakbeat / Electro Popping & Stomping
+                walk_bob = abs(math.sin(dance_t)) * 5.0 * s
+                arm_l_angle = math.sin(dance_t) * 38.0
+                arm_r_angle = -math.sin(dance_t) * 38.0
+                leg_l_angle = math.sin(dance_t) * 16.0
+                leg_r_angle = -math.sin(dance_t) * 16.0
+                head_tilt = math.sin(dance_t * 0.5) * 10.0
+                head_bob = math.cos(dance_t) * 2.5 * s
+                string_sway = math.sin(dance_t) * 6.0
+
+            elif style == 1:
+                # Style 1: DJ Head-Bop & Sky Pump
+                walk_bob = abs(math.sin(dance_t * 1.4)) * 3.5 * s
+                arm_l_angle = -75.0 + math.sin(dance_t) * 8.0  # hand on headphone
+                arm_r_angle = -60.0 - abs(math.sin(dance_t * 2.0)) * 28.0  # sky pump
+                head_tilt = math.sin(dance_t * 0.7) * 7.0
+                head_bob = (math.sin(dance_t * 1.4) + 1.0) * 3.0 * s
+                string_sway = math.sin(dance_t * 1.4) * 8.0
+
+            elif style == 2:
+                # Style 2: Shuffle Kick / Side-to-Side Hopping
+                walk_bob = abs(math.sin(dance_t * 1.8)) * 6.5 * s
+                leg_l_angle = math.sin(dance_t * 1.8) * 28.0
+                leg_r_angle = -math.sin(dance_t * 1.8) * 28.0
+                arm_l_angle = -leg_l_angle * 1.1
+                arm_r_angle = -leg_r_angle * 1.1
+                head_tilt = math.sin(dance_t * 0.9) * 12.0
+                head_bob = math.cos(dance_t * 1.8) * 2.0 * s
+                string_sway = math.sin(dance_t * 1.8) * 10.0
+
+            else:
+                # Style 3: Torso Twist & Rave Wave
+                walk_bob = abs(math.cos(dance_t * 1.2)) * 3.5 * s
+                arm_l_angle = math.sin(dance_t * 1.2) * 40.0
+                arm_r_angle = math.sin(dance_t * 1.2) * 40.0
+                leg_l_angle = math.sin(dance_t * 1.2) * 12.0
+                leg_r_angle = math.sin(dance_t * 1.2) * 12.0
+                head_tilt = math.sin(dance_t * 1.2) * 9.0
+                head_bob = 1.5 * s
+                string_sway = math.sin(dance_t * 1.2) * 12.0
+
+        elif self.state == self.STATE_HURT:
+            # Comic dizzy sprawling with wobbly head shake
+            walk_bob = 9.0 * s
+            leg_l_angle = 65.0
+            leg_r_angle = 65.0
+            arm_l_angle = 45.0 + math.sin(self.anim_tick * 0.25) * 10.0
+            arm_r_angle = 45.0 - math.sin(self.anim_tick * 0.25) * 10.0
+            head_tilt = math.sin(self.anim_tick * 0.30) * 14.0
+            head_bob = math.cos(self.anim_tick * 0.30) * 2.0 * s
+            string_sway = math.sin(self.anim_tick * 0.30) * 5.0
 
         elif self.state == self.STATE_PICKED_UP:
             walk_bob = 0.0
@@ -687,7 +851,22 @@ class DesktopRoboPet(QWidget):
             p.drawEllipse(QRectF(-11.5 * s, -4 * s, 3.5 * s, 3.5 * s))
             p.drawEllipse(QRectF(7.5 * s, -4 * s, 3.5 * s, 3.5 * s))
 
-        elif self.has_headphones or self.state == self.STATE_DANCE:
+        elif self.state == self.STATE_HURT:
+            # Comic dizzy spiral eyes @ @ + dazed sweat blush
+            p.setPen(QPen(QColor('#FFD700'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            rot = self.anim_tick * 0.16
+            for offset_x in [-9.5 * s, 9.5 * s]:
+                for stp in range(3):
+                    angle_start = int((rot + stp * 1.8) * 180 / math.pi) % 360
+                    rad = (2.2 + stp * 2.2) * s
+                    p.drawArc(QRectF(offset_x - rad, -1.0 * s - rad, rad * 2, rad * 2), angle_start * 16, 120 * 16)
+            # Dizzy blue blush
+            p.setBrush(QColor(80, 180, 255, 150))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QRectF(-15.5 * s, 1.5 * s, 4.0 * s, 3.0 * s))
+            p.drawEllipse(QRectF(11.5 * s, 1.5 * s, 4.0 * s, 3.0 * s))
+
+        elif self.has_headphones and self.state == self.STATE_DANCE:
             # Happy closed music eyes ^ ^ + pink blush
             p.setPen(QPen(QColor('#1DB954'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.drawArc(QRectF(-14 * s, -7 * s, 8 * s, 6 * s), 20 * 16, 140 * 16)
@@ -772,3 +951,7 @@ class DesktopRoboPet(QWidget):
                 col = QColor(pt["color"])
                 col.setAlpha(pt["alpha"])
                 draw_vector_heart(p, pt["x"], pt["y"], pt["r"] * s, col)
+            elif pt["type"] == "dizzy_star":
+                col = QColor(pt["color"])
+                col.setAlpha(pt["alpha"])
+                draw_vector_star(p, pt.get("x", self.width() / 2.0), pt.get("y", self.height() / 2.0 - 28), pt["size"] * s, col)
