@@ -223,8 +223,11 @@ class IslandAPIHandler(BaseHTTPRequestHandler):
             global_signals.collapse_requested.emit()
             self._send_json(200, {"status": "ok", "action": "collapsed"})
         elif parsed.path == '/api/chat':
-            query = data.get("query", "")
+            params = urllib.parse.parse_qs(parsed.query)
+            q_list = params.get("q", [])
+            query = q_list[0] if q_list else "Привет"
             try:
+                from deepseek_brain import DeepSeekBrain
                 ans = DeepSeekBrain.get().ask(query)
             except Exception as e:
                 ans = str(e)
@@ -292,6 +295,14 @@ class IslandAPIHandler(BaseHTTPRequestHandler):
             path = data.get("path", "")
             global_signals.snapshot_requested.emit(path)
             self._send_json(200, {"status": "ok", "snapshot": path})
+        elif parsed.path == '/api/chat':
+            query = data.get("query", "")
+            try:
+                from deepseek_brain import DeepSeekBrain
+                ans = DeepSeekBrain.get().ask(query)
+            except Exception as e:
+                ans = str(e)
+            self._send_json(200, {"status": "ok", "response": ans})
         elif parsed.path == '/api/pet/spawn':
             global_signals.pet_spawn_requested.emit()
             self._send_json(200, {"status": "ok", "action": "spawned"})
