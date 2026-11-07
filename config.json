@@ -1,6 +1,7 @@
 {
-  "sound_enabled": true,
-  "always_on_top": false,
+  "sound_enabled": false,
+  "always_on_top": true,
+  "desktop_pet_enabled": true,
   "pos_x": null,
   "pos_y": null
 }

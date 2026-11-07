@@ -27,6 +27,10 @@ from datetime import datetime
 from socketserver import ThreadingMixIn
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.parse
+try:
+    from desktop_pet import DesktopRoboPet
+except Exception:
+    DesktopRoboPet = None
 import winsound
 
 try:
@@ -98,21 +102,32 @@ def make_window_topmost(hwnd):
         pass
 
 def play_sound(kind="click"):
-    try:
-        if kind == "click":
-            winsound.Beep(1200, 20)
-        elif kind == "heart":
-            winsound.Beep(1046, 50)
-            winsound.Beep(1318, 70)
-        elif kind == "chime":
-            winsound.Beep(784, 50)
-            winsound.Beep(987, 50)
-            winsound.Beep(1318, 90)
-        elif kind == "alert":
-            winsound.Beep(987, 80)
-            winsound.Beep(784, 100)
-    except Exception:
-        pass
+    def _run():
+        try:
+            if kind == "click":
+                winsound.Beep(1200, 20)
+            elif kind == "heart":
+                winsound.Beep(1046, 50)
+                winsound.Beep(1318, 70)
+            elif kind in ["eat", "nom"]:
+                # Playful munching cadence: chomp, chomp, chomp, happy gulp chime!
+                winsound.Beep(523, 40)
+                time.sleep(0.03)
+                winsound.Beep(659, 45)
+                time.sleep(0.03)
+                winsound.Beep(784, 50)
+                time.sleep(0.04)
+                winsound.Beep(1046, 85)
+            elif kind == "chime":
+                winsound.Beep(784, 50)
+                winsound.Beep(987, 50)
+                winsound.Beep(1318, 90)
+            elif kind == "alert":
+                winsound.Beep(987, 80)
+                winsound.Beep(784, 100)
+        except Exception:
+            pass
+    threading.Thread(target=_run, daemon=True).start()
 
 def format_file_size(bytes_num):
     if bytes_num < 1024:
@@ -133,6 +148,18 @@ try:
 except Exception:
     HAS_MEDIA_ENGINE = False
 
+try:
+    from voice_engine import VoiceEngine, VoiceInputEngine, voice_bridge
+    HAS_VOICE_ENGINE = True
+except Exception:
+    HAS_VOICE_ENGINE = False
+
+try:
+    from game_commentary import GameCommentaryEngine
+    HAS_GAME_COMMENTARY = True
+except Exception:
+    HAS_GAME_COMMENTARY = False
+
 # ==============================================================================
 # LOCAL HTTP API SIGNALS (ANTIGRAVITY & EXTERNAL TOOLS)
 # ==============================================================================
@@ -144,6 +171,16 @@ class BridgeSignals(QObject):
     bluetooth_popup = pyqtSignal(dict)
     shelf_add = pyqtSignal(list)
     media_state_changed = pyqtSignal(object)
+    set_emotion = pyqtSignal(str)
+    trigger_speech = pyqtSignal(str)
+    trigger_commentary = pyqtSignal(bool)
+    expand_requested = pyqtSignal()
+    collapse_requested = pyqtSignal()
+    snapshot_requested = pyqtSignal(str)
+    select_tab = pyqtSignal(int)
+    pet_toggle_requested = pyqtSignal()
+    pet_spawn_requested = pyqtSignal()
+    pet_dismiss_requested = pyqtSignal()
 
 global_signals = BridgeSignals()
 
@@ -177,7 +214,22 @@ class IslandAPIHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == '/api/status':
-            self._send_json(200, {"status": "ok", "app": "TwoCode Dynamic Island Pro", "version": "3.5.0"})
+            self._send_json(200, {"status": "ok", "app": "TwoCode Dynamic Island Pro Unified", "version": "4.0.0"})
+        elif parsed.path in ['/expand', '/api/expand']:
+            global_signals.expand_requested.emit()
+            self._send_json(200, {"status": "ok", "action": "expanded"})
+        elif parsed.path in ['/collapse', '/api/collapse']:
+            global_signals.collapse_requested.emit()
+            self._send_json(200, {"status": "ok", "action": "collapsed"})
+        elif parsed.path == '/api/pet/spawn':
+            global_signals.pet_spawn_requested.emit()
+            self._send_json(200, {"status": "ok", "action": "spawned"})
+        elif parsed.path == '/api/pet/dismiss':
+            global_signals.pet_dismiss_requested.emit()
+            self._send_json(200, {"status": "ok", "action": "dismissed"})
+        elif parsed.path == '/api/pet/toggle':
+            global_signals.pet_toggle_requested.emit()
+            self._send_json(200, {"status": "ok", "action": "toggled"})
         elif parsed.path == '/api/bluetooth':
             global_signals.bluetooth_popup.emit({"name": "Baseus Encok WM01", "battery": 79})
             self._send_json(200, {"status": "ok", "triggered": "bluetooth_popup"})
@@ -193,7 +245,13 @@ class IslandAPIHandler(BaseHTTPRequestHandler):
         except Exception:
             data = {}
 
-        if parsed.path == '/api/status':
+        if parsed.path in ['/expand', '/api/expand']:
+            global_signals.expand_requested.emit()
+            self._send_json(200, {"status": "ok", "action": "expanded"})
+        elif parsed.path in ['/collapse', '/api/collapse']:
+            global_signals.collapse_requested.emit()
+            self._send_json(200, {"status": "ok", "action": "collapsed"})
+        elif parsed.path == '/api/status':
             global_signals.agent_status.emit(data)
             self._send_json(200, {"status": "ok"})
         elif parsed.path == '/api/ask':
@@ -210,6 +268,35 @@ class IslandAPIHandler(BaseHTTPRequestHandler):
             if files:
                 global_signals.shelf_add.emit(files)
             self._send_json(200, {"status": "ok", "added": len(files)})
+        elif parsed.path == '/api/emotion':
+            emotion = data.get("emotion", "idle")
+            global_signals.set_emotion.emit(emotion)
+            self._send_json(200, {"status": "ok", "emotion": emotion})
+        elif parsed.path == '/api/speak':
+            text = data.get("text", "")
+            if text and HAS_VOICE_ENGINE:
+                VoiceEngine.get().speak(text)
+            self._send_json(200, {"status": "ok", "spoken": text})
+        elif parsed.path == '/api/comment':
+            global_signals.trigger_commentary.emit(True)
+            self._send_json(200, {"status": "ok", "action": "commentary_triggered"})
+        elif parsed.path == '/api/snapshot':
+            path = data.get("path", "")
+            global_signals.snapshot_requested.emit(path)
+            self._send_json(200, {"status": "ok", "snapshot": path})
+        elif parsed.path == '/api/pet/spawn':
+            global_signals.pet_spawn_requested.emit()
+            self._send_json(200, {"status": "ok", "action": "spawned"})
+        elif parsed.path == '/api/pet/dismiss':
+            global_signals.pet_dismiss_requested.emit()
+            self._send_json(200, {"status": "ok", "action": "dismissed"})
+        elif parsed.path == '/api/pet/toggle':
+            global_signals.pet_toggle_requested.emit()
+            self._send_json(200, {"status": "ok", "action": "toggled"})
+        elif parsed.path == '/api/tab':
+            idx = int(data.get("tab", 0))
+            global_signals.select_tab.emit(idx)
+            self._send_json(200, {"status": "ok", "tab": idx})
         else:
             self._send_json(404, {"error": "Not Found"})
 
@@ -275,8 +362,26 @@ class EqualizerBars(QWidget):
             p.drawRoundedRect(QRectF(x, y, bar_w, bar_h), bar_w / 2.0, bar_w / 2.0)
 
 
+def draw_vector_heart(p, cx, cy, r, color):
+    p.save()
+    p.setBrush(QBrush(color))
+    p.setPen(Qt.PenStyle.NoPen)
+    path = QPainterPath()
+    path.moveTo(cx, cy + r * 0.8)
+    path.cubicTo(cx - r * 1.3, cy - r * 0.2, cx - r * 0.9, cy - r * 1.3, cx, cy - r * 0.3)
+    path.cubicTo(cx + r * 0.9, cy - r * 1.3, cx + r * 1.3, cy - r * 0.2, cx, cy + r * 0.8)
+    p.drawPath(path)
+    p.restore()
+
+
 class LiveAnimatedRobo(QWidget):
-    """The TwoCode High-Tech Robot Companion with blinking, antenna orb and music dance."""
+    """
+    Authentic TwoCode Mascot Companion with 60 FPS continuous physics-based animations:
+    - Pure white 3D head with metallic shading & side ear pods
+    - Curved antenna with glowing sphere orb & halo
+    - Glass visor with upper specular reflection pill
+    - Real continuous 3-phase eating animation: suction, chomping & squish, blissful heart gulp!
+    """
     clicked = pyqtSignal()
 
     def __init__(self, size=22, parent=None):
@@ -285,14 +390,16 @@ class LiveAnimatedRobo(QWidget):
         self.size_val = size
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.mode = "idle"  # idle, music, thinking, coding, heart, done
+        self.mode = "idle"  # idle, music, thinking, coding, eating, nom, hungry, heart, star, shocked, gaming, cool, dizzy
         self.anim_tick = 0
+        self.eat_time = 0.0
         self.blink_state = False
         self.blink_counter = 0
 
+        # Silky smooth 50 FPS timer (20ms)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.advance)
-        self.timer.start(45)
+        self.timer.start(20)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -303,18 +410,38 @@ class LiveAnimatedRobo(QWidget):
 
     def set_mode(self, mode, duration_ms=0):
         self.mode = mode
+        if mode in ["eating", "nom"]:
+            self.eat_time = 0.0
         self.update()
-        if duration_ms > 0:
-            QTimer.singleShot(duration_ms, lambda: self.set_mode("idle"))
+        if duration_ms > 0 and mode not in ["eating", "nom"]:
+            target_mode = mode
+            QTimer.singleShot(duration_ms, lambda: self._reset_mode(target_mode))
+
+    def _reset_mode(self, expected_mode):
+        if self.mode == expected_mode:
+            self.mode = "idle"
+            self.eat_time = 0.0
+            self.update()
 
     def advance(self):
+        dt = 0.020  # 50 FPS
         self.anim_tick += 1
-        self.blink_counter += 1
-        if self.blink_counter > 75:
-            self.blink_state = True
-            if self.blink_counter > 79:
-                self.blink_state = False
-                self.blink_counter = 0
+
+        if self.mode in ["eating", "nom"]:
+            self.eat_time += dt
+            if self.eat_time > 3.2:
+                self.mode = "idle"
+                self.eat_time = 0.0
+        else:
+            self.eat_time = 0.0
+            # Natural periodic blinking
+            self.blink_counter += 1
+            if self.blink_counter > 140:
+                self.blink_state = True
+                if self.blink_counter > 147:
+                    self.blink_state = False
+                    self.blink_counter = 0
+
         self.update()
 
     def paintEvent(self, event):
@@ -328,56 +455,308 @@ class LiveAnimatedRobo(QWidget):
         p.save()
         p.translate(w / 2.0, h / 2.0)
 
-        # Dance bobbing tilt when music is playing
-        if self.mode == "music":
-            tilt = math.sin(self.anim_tick * 0.28) * 7.0
-            bob_y = math.cos(self.anim_tick * 0.56) * 1.5 * s
-            p.rotate(tilt)
-            p.translate(0, bob_y)
+        # -------------------------------------------------------------
+        # Physics calculations for continuous animation
+        # -------------------------------------------------------------
+        t = self.eat_time
+        bob_y = 0.0
+        tilt = 0.0
+        squash_x = 1.0
+        squash_y = 1.0
+        mouth_ratio = 0.0
+        antenna_flex = 0.0
 
-        # Antenna stem
-        p.setPen(QPen(QColor("#A8A49E"), max(1, int(2.5 * s))))
-        p.drawLine(0, int(-16 * s), 0, int(-24 * s))
-
-        # Antenna Glowing Orb Tip
-        orb_color = QColor("#5CE07A")
-        if self.mode in ["thinking", "coding"]:
-            orb_color = QColor(255, 140, 0, int(180 + 75 * math.sin(self.anim_tick * 0.4)))
+        if self.mode in ["eating", "nom"]:
+            if t < 0.6:
+                # Stage 1: Anticipation & Suction Open (0.0s - 0.6s)
+                p_prog = t / 0.6
+                tilt = math.sin(p_prog * math.pi) * -4.0
+                bob_y = -math.sin(p_prog * math.pi) * 2.0 * s
+                mouth_ratio = math.sin(p_prog * math.pi * 0.5)
+                antenna_flex = -2.0 * p_prog
+            elif t < 2.2:
+                # Stage 2: Continuous Chomping, Chewing & Squish (0.6s - 2.2s)
+                chew_t = (t - 0.6) * 16.0
+                bob_y = math.sin(chew_t) * 2.5 * s
+                tilt = math.cos(chew_t * 0.5) * 4.0
+                squash_x = 1.0 + 0.06 * math.sin(chew_t)
+                squash_y = 1.0 - 0.06 * math.sin(chew_t)
+                mouth_ratio = (math.sin(chew_t) + 1.0) / 2.0
+                antenna_flex = math.sin(chew_t - 0.8) * 3.0
+            else:
+                # Stage 3: Gulp, Bliss & Happy Hearts (2.2s - 3.2s)
+                g_prog = min(1.0, (t - 2.2) / 1.0)
+                if g_prog < 0.25:
+                    squash_y = 1.15
+                    squash_x = 0.90
+                    bob_y = 3.0 * s
+                else:
+                    bounce = math.exp(-(g_prog - 0.25) * 4.0) * math.cos((g_prog - 0.25) * 14.0)
+                    bob_y = bounce * 2.0 * s
+                mouth_ratio = 0.0
+                tilt = math.sin(g_prog * math.pi * 2) * 2.0
         elif self.mode == "music":
-            orb_color = QColor("#C8F08F")
-        elif self.mode == "heart":
-            orb_color = QColor("#FF69B4")
-
-        p.setBrush(QBrush(orb_color))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawEllipse(QPointF(0, -25.0 * s), 3.8 * s, 3.8 * s)
-
-        # Robo Head Body
-        p.setPen(QPen(QColor("#45423E"), max(1, int(1.5 * s))))
-        p.setBrush(QColor("#242220"))
-        p.drawRoundedRect(QRectF(-22 * s, -16 * s, 44 * s, 34 * s), 10 * s, 10 * s)
-
-        # Visor Screen
-        p.setBrush(QColor("#11100F"))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(QRectF(-18 * s, -12 * s, 36 * s, 26 * s), 7 * s, 7 * s)
-
-        # Visor Eyes / Emoticons
-        if self.mode == "heart":
-            p.setPen(QColor("#FF4081"))
-            font = p.font()
-            font.setPointSize(max(6, int(10 * s)))
-            font.setBold(True)
-            p.setFont(font)
-            p.drawText(QRectF(-18 * s, -12 * s, 36 * s, 26 * s), Qt.AlignmentFlag.AlignCenter, "♥  ♥")
-        elif self.blink_state:
-            p.setPen(QPen(QColor("#5CE07A"), max(1, int(2 * s))))
-            p.drawLine(int(-12 * s), 0, int(-4 * s), 0)
-            p.drawLine(int(4 * s), 0, int(12 * s), 0)
+            # Dance bobbing tilt in music mode
+            m_t = self.anim_tick * 0.14
+            tilt = math.sin(m_t) * 7.5
+            bob_y = abs(math.cos(m_t)) * 2.2 * s
+            antenna_flex = math.sin(m_t * 1.5) * 2.5
+        elif self.mode == "dizzy":
+            tilt = math.sin(self.anim_tick * 0.2) * 10.0
+            bob_y = math.cos(self.anim_tick * 0.2) * 1.5 * s
+        elif self.mode == "hungry":
+            # Looking up in anticipation
+            tilt = -3.0
+            bob_y = -1.5 * s
+            mouth_ratio = 0.85
+            antenna_flex = -1.5
         else:
+            # Idle gentle breathing float
+            bob_y = math.sin(self.anim_tick * 0.06) * 0.8 * s
+
+        # Apply transformation
+        p.translate(0, bob_y)
+        p.rotate(tilt)
+        p.scale(squash_x, squash_y)
+
+        # -------------------------------------------------------------
+        # 1. Soft Ground Shadow
+        # -------------------------------------------------------------
+        p.setBrush(QColor(0, 0, 0, 40))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(QRectF(-18 * s, 17 * s, 36 * s, 6 * s))
+
+        # -------------------------------------------------------------
+        # 2. Side Ear Pods (TwoCode signature capsule sensors)
+        # -------------------------------------------------------------
+        p.setBrush(QBrush(QColor("#E2E8F0")))
+        p.setPen(QPen(QColor("#CBD5E1"), max(1, int(1.2 * s))))
+        p.drawRoundedRect(QRectF(-26.5 * s, -6 * s, 5.5 * s, 13 * s), 2.5 * s, 2.5 * s)
+        p.drawRoundedRect(QRectF(21.0 * s, -6 * s, 5.5 * s, 13 * s), 2.5 * s, 2.5 * s)
+
+        # -------------------------------------------------------------
+        # 3. Curved Antenna Stalk & Glowing Sphere Orb
+        # -------------------------------------------------------------
+        ant_path = QPainterPath()
+        ant_path.moveTo(0, -17 * s)
+        ant_path.cubicTo(antenna_flex * s, -22 * s, (antenna_flex + 1.5) * s, -25 * s, (antenna_flex + 1.0) * s, -28 * s)
+        p.setPen(QPen(QColor("#E2E8F0"), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(ant_path)
+
+        orb_center = QPointF((antenna_flex + 1.0) * s, -29 * s)
+        orb_col = QColor("#5CE07A")
+        if self.mode in ["eating", "nom"]:
+            if t < 0.6:
+                orb_col = QColor("#FFA116")
+            elif t < 2.2:
+                orb_col = QColor("#FFD60A") if (int(t * 15) % 2 == 0) else QColor("#30D158")
+            else:
+                orb_col = QColor("#FF4081")
+        elif self.mode == "hungry":
+            orb_col = QColor(255, 161, 22, int(210 + 45 * math.sin(self.anim_tick * 0.3)))
+        elif self.mode in ["thinking", "coding"]:
+            orb_col = QColor(255, 140, 0, int(180 + 75 * math.sin(self.anim_tick * 0.2)))
+        elif self.mode == "music":
+            orb_col = QColor("#A3E635")
+        elif self.mode in ["heart", "love"]:
+            orb_col = QColor("#FF4081")
+        elif self.mode == "gaming":
+            orb_col = QColor("#BF5AF2")
+        elif self.mode == "shocked":
+            orb_col = QColor("#FF453A")
+        elif self.mode == "star":
+            orb_col = QColor("#FFD60A")
+
+        # Halo glow
+        glow_grad = QRadialGradient(orb_center, 7 * s)
+        glow_grad.setColorAt(0.0, QColor(orb_col.red(), orb_col.green(), orb_col.blue(), 140))
+        glow_grad.setColorAt(1.0, QColor(orb_col.red(), orb_col.green(), orb_col.blue(), 0))
+        p.setBrush(QBrush(glow_grad))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(orb_center, 7 * s, 7 * s)
+
+        # Crisp sphere
+        p.setBrush(QBrush(orb_col))
+        p.setPen(QPen(QColor("#FFFFFF"), max(1, int(0.8 * s))))
+        p.drawEllipse(orb_center, 3.8 * s, 3.8 * s)
+
+        # -------------------------------------------------------------
+        # 4. White Head Body (Authentic TwoCode 3D volume & shading)
+        # -------------------------------------------------------------
+        head_grad = QLinearGradient(0, -18 * s, 0, 18 * s)
+        head_grad.setColorAt(0.0, QColor("#FFFFFF"))
+        head_grad.setColorAt(0.65, QColor("#F8FAFC"))
+        head_grad.setColorAt(1.0, QColor("#E2E8F0"))
+
+        p.setBrush(QBrush(head_grad))
+        p.setPen(QPen(QColor("#CBD5E1"), max(1, int(1.2 * s))))
+        p.drawRoundedRect(QRectF(-23 * s, -17 * s, 46 * s, 35 * s), 16 * s, 16 * s)
+
+        # -------------------------------------------------------------
+        # 5. Glossy Visor Screen
+        # -------------------------------------------------------------
+        visor_rect = QRectF(-18 * s, -11 * s, 36 * s, 24 * s)
+        v_grad = QLinearGradient(0, -11 * s, 0, 13 * s)
+        v_grad.setColorAt(0.0, QColor("#181820"))
+        v_grad.setColorAt(1.0, QColor("#0D0D12"))
+        p.setBrush(QBrush(v_grad))
+        p.setPen(QPen(QColor("#252530"), max(1, int(0.8 * s))))
+        p.drawRoundedRect(visor_rect, 10 * s, 10 * s)
+
+        # Visor Upper Glass Reflection Pill
+        p.setBrush(QColor(255, 255, 255, 32))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(QRectF(-12 * s, -9.5 * s, 24 * s, 4 * s), 2 * s, 2 * s)
+
+        # -------------------------------------------------------------
+        # 6. Screen Emoticons / Continuous Fluid Eating Animation
+        # -------------------------------------------------------------
+        if self.mode in ["eating", "nom"]:
+            if t < 0.6:
+                # Stage 1: Anticipation eyes & opening mouth with file flying in
+                p.setBrush(QColor("#5CE07A"))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawEllipse(QRectF(-13 * s, -7 * s, 7.5 * s, 8.5 * s))
+                p.drawEllipse(QRectF(5.5 * s, -7 * s, 7.5 * s, 8.5 * s))
+                p.setBrush(QColor("#FFFFFF"))
+                p.drawEllipse(QRectF(-11 * s, -6 * s, 3.0 * s, 3.0 * s))
+                p.drawEllipse(QRectF(7.5 * s, -6 * s, 3.0 * s, 3.0 * s))
+
+                m_h = 2.0 * s + mouth_ratio * 6.5 * s
+                m_w = 4.0 * s + mouth_ratio * 8.0 * s
+                mouth_rect = QRectF(-m_w / 2.0, 2.5 * s - m_h / 2.0, m_w, m_h)
+                p.setBrush(QColor("#7A1515"))
+                p.setPen(QPen(QColor("#FF453A"), max(1, int(1.0 * s))))
+                p.drawRoundedRect(mouth_rect, 3 * s, 3 * s)
+
+                # Suction of file particle
+                f_dist = (1.0 - (t / 0.6)) * 20.0 * s
+                f_scale = max(0.2, (1.0 - (t / 0.6) * 0.8))
+                p.save()
+                p.translate(0, -f_dist)
+                p.scale(f_scale, f_scale)
+                p.setBrush(QColor("#38BDF8"))
+                p.setPen(QPen(QColor("#FFFFFF"), 1))
+                p.drawRoundedRect(QRectF(-5 * s, -4 * s, 10 * s, 8 * s), 2 * s, 2 * s)
+                p.restore()
+
+            elif t < 2.2:
+                # Stage 2: Continuous chomping, squinting, blushing & crumbs
+                eye_squint = 1.0 - mouth_ratio * 0.5
+                p.setPen(QPen(QColor("#5CE07A"), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                p.drawArc(QRectF(-14 * s, -7.5 * s, 8 * s, 6 * s * eye_squint), 20 * 16, 140 * 16)
+                p.drawArc(QRectF(6 * s, -7.5 * s, 8 * s, 6 * s * eye_squint), 20 * 16, 140 * 16)
+
+                m_h = max(1.0 * s, mouth_ratio * 8.5 * s)
+                m_w = (14.0 - mouth_ratio * 3.0) * s
+                mouth_y = 2.5 * s
+                mouth_rect = QRectF(-m_w / 2.0, mouth_y - m_h / 2.0, m_w, m_h)
+
+                if mouth_ratio > 0.25:
+                    p.setBrush(QColor("#7A1515"))
+                    p.setPen(QPen(QColor("#FF453A"), max(1, int(1.0 * s))))
+                    p.drawRoundedRect(mouth_rect, 3.5 * s, 3.5 * s)
+                    p.setBrush(QColor("#FF7597"))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.drawEllipse(QRectF(-3.5 * s, mouth_y + 1 * s, 7 * s, 3.5 * s))
+                    p.setBrush(QColor("#FFFFFF"))
+                    p.drawRoundedRect(QRectF(-2 * s, mouth_y - m_h / 2.0, 4 * s, 2.0 * s), 0.8 * s, 0.8 * s)
+                else:
+                    p.setPen(QPen(QColor("#5CE07A"), max(1, int(2.0 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                    ch_shift = math.sin(t * 20) * 1.5 * s
+                    p.drawLine(int(-5.5 * s), int(mouth_y + ch_shift), int(5.5 * s), int(mouth_y - ch_shift))
+
+                cheek_alpha = int(190 * (1.0 - mouth_ratio * 0.7))
+                p.setBrush(QColor(255, 80, 150, cheek_alpha))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawEllipse(QRectF(-15.5 * s, 1.0 * s, 4.5 * s, 3.5 * s))
+                p.drawEllipse(QRectF(11.0 * s, 1.0 * s, 4.5 * s, 3.5 * s))
+
+                spark_phase = (t * 6.0) % 1.0
+                p.setBrush(QColor(255, 214, 10, int(255 * (1.0 - spark_phase))))
+                p.drawEllipse(QPointF(12 * s + spark_phase * 4 * s, -4 * s - spark_phase * 6 * s), 1.5 * s, 1.5 * s)
+                p.drawEllipse(QPointF(-12 * s - spark_phase * 3 * s, -3 * s - spark_phase * 5 * s), 1.2 * s, 1.2 * s)
+
+            else:
+                # Stage 3: Heart eyes, blissful tongue lick smile
+                draw_vector_heart(p, -10 * s, -3 * s, 4.5 * s, QColor("#FF4081"))
+                draw_vector_heart(p, 10 * s, -3 * s, 4.5 * s, QColor("#FF4081"))
+
+                p.setPen(QPen(QColor("#FF4081"), max(1, int(2.0 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawArc(QRectF(-6 * s, 1.5 * s, 12 * s, 6 * s), 190 * 16, 160 * 16)
+
+                p.setBrush(QColor(255, 80, 150, 160))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawEllipse(QRectF(-15.5 * s, 1.0 * s, 4.5 * s, 3.5 * s))
+                p.drawEllipse(QRectF(11.0 * s, 1.0 * s, 4.5 * s, 3.5 * s))
+
+        elif self.mode == "hungry":
+            # Anticipation wide eyes looking up & open mouth
             p.setBrush(QColor("#5CE07A"))
-            p.drawRoundedRect(QRectF(-13 * s, -5 * s, 8 * s, 10 * s), 3 * s, 3 * s)
-            p.drawRoundedRect(QRectF(5 * s, -5 * s, 8 * s, 10 * s), 3 * s, 3 * s)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QRectF(-13 * s, -7 * s, 7.5 * s, 8.5 * s))
+            p.drawEllipse(QRectF(5.5 * s, -7 * s, 7.5 * s, 8.5 * s))
+            p.setBrush(QColor("#FFFFFF"))
+            p.drawEllipse(QRectF(-11 * s, -6 * s, 3.0 * s, 3.0 * s))
+            p.drawEllipse(QRectF(7.5 * s, -6 * s, 3.0 * s, 3.0 * s))
+
+            mouth_rect = QRectF(-6 * s, 0 * s, 12 * s, 7.5 * s)
+            p.setBrush(QColor("#7A1515"))
+            p.setPen(QPen(QColor("#FF453A"), max(1, int(1.0 * s))))
+            p.drawRoundedRect(mouth_rect, 3.5 * s, 3.5 * s)
+
+        elif self.mode in ["heart", "love"]:
+            draw_vector_heart(p, -10 * s, -3 * s, 4.5 * s, QColor("#FF4081"))
+            draw_vector_heart(p, 10 * s, -3 * s, 4.5 * s, QColor("#FF4081"))
+
+        elif self.mode == "happy":
+            p.setPen(QPen(QColor("#5CE07A"), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawArc(QRectF(-14 * s, -7.5 * s, 8 * s, 6 * s), 20 * 16, 140 * 16)
+            p.drawArc(QRectF(6 * s, -7.5 * s, 8 * s, 6 * s), 20 * 16, 140 * 16)
+            p.setBrush(QColor(255, 80, 150, 160))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QRectF(-15.5 * s, 1.0 * s, 4.5 * s, 3.5 * s))
+            p.drawEllipse(QRectF(11.0 * s, 1.0 * s, 4.5 * s, 3.5 * s))
+
+        elif self.mode == "dizzy":
+            p.setPen(QPen(QColor("#5CE07A"), max(1, int(1.8 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            for center_x in [-10 * s, 10 * s]:
+                p.drawArc(QRectF(center_x - 4 * s, -5 * s, 8 * s, 8 * s), int(self.anim_tick * 10 * 16), 260 * 16)
+                p.drawArc(QRectF(center_x - 2 * s, -3 * s, 4 * s, 4 * s), int(-self.anim_tick * 10 * 16), 260 * 16)
+
+        elif self.mode == "shocked":
+            p.setPen(QPen(QColor("#FF453A"), max(1, int(2.0 * s))))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(QRectF(-13 * s, -6 * s, 7 * s, 7 * s))
+            p.drawEllipse(QRectF(6 * s, -6 * s, 7 * s, 7 * s))
+
+        elif self.mode == "cool":
+            p.setBrush(QColor("#0A84FF"))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(QRectF(-15 * s, -6 * s, 13 * s, 8 * s), 2 * s, 2 * s)
+            p.drawRoundedRect(QRectF(2 * s, -6 * s, 13 * s, 8 * s), 2 * s, 2 * s)
+            p.setPen(QPen(QColor("#0A84FF"), max(1, int(2 * s))))
+            p.drawLine(int(-2 * s), int(-2 * s), int(2 * s), int(-2 * s))
+
+        elif self.blink_state:
+            # Natural blink line
+            p.setPen(QPen(QColor("#5CE07A"), max(1, int(2.2 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(int(-13 * s), int(-2 * s), int(-5 * s), int(-2 * s))
+            p.drawLine(int(5 * s), int(-2 * s), int(13 * s), int(-2 * s))
+
+        else:
+            # Iconic TwoCode glowing emerald oval eyes
+            p.setBrush(QColor("#5CE07A"))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(QRectF(-13.5 * s, -6 * s, 8 * s, 10 * s), 3.5 * s, 3.5 * s)
+            p.drawRoundedRect(QRectF(5.5 * s, -6 * s, 8 * s, 10 * s), 3.5 * s, 3.5 * s)
+            # Specular sparkle
+            p.setBrush(QColor("#FFFFFF"))
+            p.drawEllipse(QRectF(-11.5 * s, -4.5 * s, 2.5 * s, 2.5 * s))
+            p.drawEllipse(QRectF(7.5 * s, -4.5 * s, 2.5 * s, 2.5 * s))
 
         p.restore()
 
@@ -620,7 +999,7 @@ class FileCardWidget(QFrame):
 
 
 class FileShelfWidget(QWidget):
-    """File shelf with Drag & Drop target and staggered drop animation."""
+    """File shelf with Drag & Drop target, mini animated Robo mascot, and staggered drop animation."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
@@ -707,45 +1086,94 @@ class FileShelfWidget(QWidget):
         self.scroll.setWidget(self.card_container)
         main_layout.addWidget(self.scroll)
 
-        self.drop_hint = QLabel("Перетащите файлы сюда или на остров")
-        self.drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.drop_hint.setStyleSheet("""
-            QLabel {
-                color: #555866;
-                font-size: 10px;
-                border: 1px dashed rgba(255, 255, 255, 0.12);
-                border-radius: 8px;
-                padding: 4px;
+        # Interactive Drop Zone with Animated Mascot
+        self.drop_zone = QFrame()
+        self.drop_zone.setObjectName("dropZone")
+        self.drop_zone.setStyleSheet("""
+            QFrame#dropZone {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px dashed rgba(255, 255, 255, 0.15);
+                border-radius: 12px;
+                padding: 4px 8px;
             }
         """)
-        main_layout.addWidget(self.drop_hint)
+        dz_layout = QHBoxLayout(self.drop_zone)
+        dz_layout.setContentsMargins(8, 4, 8, 4)
+        dz_layout.setSpacing(10)
+
+        self.drop_robo = LiveAnimatedRobo(size=34)
+        dz_layout.addWidget(self.drop_robo)
+
+        dz_text_layout = QVBoxLayout()
+        dz_text_layout.setSpacing(1)
+        self.drop_title = QLabel("Положите файл роботу — он его скушает на полку!")
+        self.drop_title.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 700;")
+        self.drop_sub = QLabel("Перетащите файлы сюда или в капельку острова")
+        self.drop_sub.setStyleSheet("color: #8E8E93; font-size: 9.5px;")
+        dz_text_layout.addWidget(self.drop_title)
+        dz_text_layout.addWidget(self.drop_sub)
+        dz_layout.addLayout(dz_text_layout)
+        dz_layout.addStretch()
+
+        main_layout.addWidget(self.drop_zone)
 
         self.load_shelf_data()
+
+    def set_hungry(self, hungry=True):
+        if hungry:
+            self.drop_robo.set_mode("hungry")
+            self.drop_zone.setStyleSheet("""
+                QFrame#dropZone {
+                    background: rgba(56, 189, 248, 0.12);
+                    border: 1.5px dashed #38BDF8;
+                    border-radius: 12px;
+                    padding: 4px 8px;
+                }
+            """)
+            self.drop_title.setText("Ам! Отпустите файл — Robo готов его съесть!")
+            self.drop_title.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 700;")
+        else:
+            if self.drop_robo.mode == "hungry":
+                self.drop_robo.set_mode("idle")
+            self._reset_drop_zone()
+
+    def trigger_eat_animation(self, filename):
+        self.drop_robo.set_mode("eating", duration_ms=2800)
+        self.drop_zone.setStyleSheet("""
+            QFrame#dropZone {
+                background: rgba(48, 209, 88, 0.12);
+                border: 1.5px solid #30D158;
+                border-radius: 12px;
+                padding: 4px 8px;
+            }
+        """)
+        self.drop_title.setText(f"😋 Ням-ням! Скушал {filename}!")
+        self.drop_title.setStyleSheet("color: #30D158; font-size: 11px; font-weight: 700;")
+        self.drop_sub.setText("Файл сохранён и добавлен на вашу полочку!")
+        QTimer.singleShot(2800, self._reset_drop_zone)
+
+    def _reset_drop_zone(self):
+        if self.drop_robo.mode in ["eating", "hungry"]:
+            return
+        self.drop_title.setText("Положите файл роботу — он его скушает на полку!")
+        self.drop_title.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 700;")
+        self.drop_sub.setText("Перетащите файлы сюда или в капельку острова")
+        self.drop_zone.setStyleSheet("""
+            QFrame#dropZone {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px dashed rgba(255, 255, 255, 0.15);
+                border-radius: 12px;
+                padding: 4px 8px;
+            }
+        """)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() or event.mimeData().hasText():
             event.acceptProposedAction()
-            self.drop_hint.setStyleSheet("""
-                QLabel {
-                    color: #38BDF8;
-                    font-size: 10px;
-                    border: 1px dashed #38BDF8;
-                    border-radius: 8px;
-                    padding: 4px;
-                    background: rgba(56, 189, 248, 0.1);
-                }
-            """)
+            self.set_hungry(True)
 
     def dragLeaveEvent(self, event):
-        self.drop_hint.setStyleSheet("""
-            QLabel {
-                color: #555866;
-                font-size: 10px;
-                border: 1px dashed rgba(255, 255, 255, 0.12);
-                border-radius: 8px;
-                padding: 4px;
-            }
-        """)
+        self.set_hungry(False)
 
     def dropEvent(self, event):
         paths = []
@@ -756,14 +1184,33 @@ class FileShelfWidget(QWidget):
                     paths.append(local_p)
         self.dragLeaveEvent(None)
         if paths:
+            fname = os.path.basename(paths[0])
+            if len(paths) > 1:
+                fname += f" (+{len(paths)-1})"
+            play_sound("eat")
+            self.trigger_eat_animation(fname)
             self.add_files(paths, animate=True)
-            play_sound("heart")
+            island = self.window()
+            if hasattr(island, 'pill_robo'):
+                island.pill_robo.set_mode("eating", duration_ms=2800)
+            if hasattr(island, 'robo_tab') and hasattr(island.robo_tab, 'robo'):
+                island.robo_tab.robo.set_mode("eating", duration_ms=2800)
+                island.robo_tab.speech_bubble.setText(f"😋 Ням! Скушал {fname}! Файл сохранён на полку!")
             event.acceptProposedAction()
 
     def browse_file(self):
         fpath, _ = QFileDialog.getOpenFileName(self, "Выберите файл для полки")
         if fpath:
+            fname = os.path.basename(fpath)
+            play_sound("eat")
+            self.trigger_eat_animation(fname)
             self.add_files([fpath], animate=True)
+            island = self.window()
+            if hasattr(island, 'pill_robo'):
+                island.pill_robo.set_mode("eating", duration_ms=2800)
+            if hasattr(island, 'robo_tab') and hasattr(island.robo_tab, 'robo'):
+                island.robo_tab.robo.set_mode("eating", duration_ms=2800)
+                island.robo_tab.speech_bubble.setText(f"😋 Ням! Скушал {fname}! Файл сохранён на полку!")
 
     def add_files(self, paths, animate=True):
         delay = 0
@@ -813,20 +1260,31 @@ class FileShelfWidget(QWidget):
             try:
                 with open(SHELF_DATA_PATH, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.add_files(data, animate=False)
+                if isinstance(data, list):
+                    for item in data:
+                        p = item.get("path")
+                        if p and os.path.exists(p) and p not in self.file_list:
+                            self.file_list.append(p)
+                            self._create_card(p, animate=False)
+                self.update_header()
             except Exception:
                 pass
 
     def save_shelf_data(self):
+        data = []
+        for p in self.file_list:
+            data.append({
+                "path": p,
+                "name": os.path.basename(p),
+                "time": time.time()
+            })
         try:
             with open(SHELF_DATA_PATH, "w", encoding="utf-8") as f:
-                json.dump(self.file_list, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
-# ==============================================================================
-# REAL WINDOWS MUSIC PLAYER (YANDEX.MUSIC, SPOTIFY, CHROME, YOUTUBE)
-# ==============================================================================
+
 class RealMusicPlayerWidget(QWidget):
     """Music player streaming REAL Windows playback via GSMTC / WinRT & window titles."""
     def __init__(self, parent=None):
@@ -1028,46 +1486,207 @@ class RealMusicPlayerWidget(QWidget):
 # AMBIENT ROBOT AI COMPANION (TAB 2)
 # ==============================================================================
 class AmbientRoboTabWidget(QWidget):
-    """Ambient TwoCode Robot Companion reacting to coding, music and system tasks."""
+    """Ambient TwoCode Robot Companion with Silero Voice, Wake Word & Live Game Commentary."""
     decision_submitted = pyqtSignal(str)
+    pet_toggled = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, commentary_engine=None):
         super().__init__(parent)
+        self.commentary_engine = commentary_engine
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(8)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # Mascot
         self.robo = LiveAnimatedRobo(size=64)
         layout.addWidget(self.robo, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # Status & Speech Bubble
         self.status_lbl = QLabel("Робот TwoCode: Готов к работе")
         self.status_lbl.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700;")
         layout.addWidget(self.status_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.sub_lbl = QLabel("Ассистент автоматически реагирует на задачи и музыку")
-        self.sub_lbl.setStyleSheet("color: #8E8E93; font-size: 10px;")
-        layout.addWidget(self.sub_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.speech_bubble = QLabel("«Привет! Я твой живой компаньон на рабочем столе!»")
+        self.speech_bubble.setWordWrap(True)
+        self.speech_bubble.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.speech_bubble.setStyleSheet("""
+            QLabel {
+                background: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                padding: 6px 12px;
+                color: #D1D1D6;
+                font-size: 10.5px;
+            }
+        """)
+        layout.addWidget(self.speech_bubble)
 
-        # Antigravity Approval Banner
+        # Action Buttons Row (Mic, Streamer, Voice Test)
+        btns_row = QHBoxLayout()
+        btns_row.setSpacing(6)
+
+        # Mic Toggle Button
+        self.mic_btn = QPushButton("🎙️ Микрофон: Выкл")
+        self.mic_btn.setFixedSize(125, 26)
+        self.mic_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mic_btn.setStyleSheet("""
+            QPushButton {
+                background: #1C1C1E;
+                color: #8E8E93;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                font-size: 10px;
+                font-weight: 700;
+            }
+        """)
+        self.mic_btn.clicked.connect(self.toggle_microphone)
+        btns_row.addWidget(self.mic_btn)
+
+        # Streamer Commentary Button
+        self.game_btn = QPushButton("🎮 Стример: Выкл")
+        self.game_btn.setFixedSize(125, 26)
+        self.game_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.game_btn.setStyleSheet("""
+            QPushButton {
+                background: #1C1C1E;
+                color: #8E8E93;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                font-size: 10px;
+                font-weight: 700;
+            }
+        """)
+        self.game_btn.clicked.connect(self.toggle_commentary)
+        btns_row.addWidget(self.game_btn)
+
+        # Voice Test Button
+        self.speak_btn = QPushButton("🗣️ Озвучка")
+        self.speak_btn.setFixedSize(85, 26)
+        self.speak_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.speak_btn.setStyleSheet("""
+            QPushButton {
+                background: #1C1C1E;
+                color: #0A84FF;
+                border: 1px solid rgba(10, 132, 255, 0.35);
+                border-radius: 8px;
+                font-size: 10px;
+                font-weight: 700;
+            }
+        """)
+        self.speak_btn.clicked.connect(self.test_speech)
+        btns_row.addWidget(self.speak_btn)
+
+        layout.addLayout(btns_row)
+
+        # Desktop Mascot Walking & Pet Button
+        pet_row = QHBoxLayout()
+        self.pet_btn = QPushButton("🐾 Спрыгнуть на рабочий стол")
+        self.pet_btn.setFixedHeight(28)
+        self.pet_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.pet_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1E293B, stop:1 #0F172A);
+                color: #38BDF8;
+                border: 1px solid rgba(56, 189, 248, 0.4);
+                border-radius: 8px;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 4px 10px;
+            }
+            QPushButton:hover {
+                background: #38BDF8;
+                color: #000000;
+            }
+        """)
+        self.pet_btn.clicked.connect(self.pet_toggled.emit)
+        pet_row.addWidget(self.pet_btn)
+        layout.addLayout(pet_row)
+
+        # Coucou-style Agent Approval Banner
         self.ask_banner = QFrame()
         self.ask_banner.setStyleSheet("""
             QFrame {
-                background: rgba(255, 165, 0, 0.12);
-                border: 1px solid rgba(255, 165, 0, 0.35);
-                border-radius: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255, 159, 10, 0.18), stop:1 rgba(255, 69, 58, 0.15));
+                border: 1px solid rgba(255, 159, 10, 0.45);
+                border-radius: 10px;
             }
         """)
-        ask_layout = QHBoxLayout(self.ask_banner)
-        ask_layout.setContentsMargins(8, 4, 8, 4)
-        ask_layout.setSpacing(8)
+        ask_layout = QVBoxLayout(self.ask_banner)
+        ask_layout.setContentsMargins(10, 6, 10, 6)
+        ask_layout.setSpacing(4)
 
-        self.ask_text = QLabel("Запрос действия от Antigravity")
-        self.ask_text.setStyleSheet("color: #FFA500; font-size: 10px; font-weight: 700;")
-        ask_layout.addWidget(self.ask_text, stretch=1)
+        header_row = QHBoxLayout()
+        header_row.setSpacing(6)
+        self.ask_dot = QLabel("●")
+        self.ask_dot.setStyleSheet("color: #FF9F0A; font-size: 11px;")
+        header_row.addWidget(self.ask_dot)
 
-        allow_btn = QPushButton("Разрешить")
-        allow_btn.setFixedSize(70, 22)
+        self.ask_agent_lbl = QLabel("coucou: Claude Code / Antigravity запрашивает команду")
+        self.ask_agent_lbl.setStyleSheet("color: #FF9F0A; font-size: 10px; font-weight: 700;")
+        header_row.addWidget(self.ask_agent_lbl, stretch=1)
+        ask_layout.addLayout(header_row)
+
+        self.ask_cmd_box = QLabel("git push origin main")
+        self.ask_cmd_box.setStyleSheet("""
+            background: rgba(0, 0, 0, 0.55);
+            color: #38BDF8;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 3px 6px;
+            border-radius: 5px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        """)
+        self.ask_cmd_box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        ask_layout.addWidget(self.ask_cmd_box)
+
+        btns_row2 = QHBoxLayout()
+        btns_row2.setSpacing(6)
+        btns_row2.addStretch()
+
+        deny_btn = QPushButton("Deny [N]")
+        deny_btn.setFixedSize(76, 22)
+        deny_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        deny_btn.setStyleSheet("""
+            QPushButton {
+                background: #282623;
+                color: #FF453A;
+                font-size: 9px;
+                font-weight: 700;
+                border-radius: 6px;
+                border: 1px solid rgba(255, 69, 58, 0.3);
+            }
+            QPushButton:hover {
+                background: rgba(255, 69, 58, 0.2);
+            }
+        """)
+        deny_btn.clicked.connect(lambda: self.decision_submitted.emit("deny"))
+        btns_row2.addWidget(deny_btn)
+
+        always_btn = QPushButton("Always allow")
+        always_btn.setFixedSize(86, 22)
+        always_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        always_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                color: #D1D5DB;
+                font-size: 9px;
+                font-weight: 600;
+                border-radius: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.15);
+                color: #FFFFFF;
+            }
+        """)
+        always_btn.clicked.connect(lambda: self.decision_submitted.emit("always"))
+        btns_row2.addWidget(always_btn)
+
+        allow_btn = QPushButton("Allow [Y]")
+        allow_btn.setFixedSize(76, 22)
         allow_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         allow_btn.setStyleSheet("""
             QPushButton {
@@ -1078,42 +1697,186 @@ class AmbientRoboTabWidget(QWidget):
                 border-radius: 6px;
                 border: none;
             }
-        """)
-        allow_btn.clicked.connect(lambda: self.decision_submitted.emit("allow"))
-        ask_layout.addWidget(allow_btn)
-
-        deny_btn = QPushButton("Отклонить")
-        deny_btn.setFixedSize(70, 22)
-        deny_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        deny_btn.setStyleSheet("""
-            QPushButton {
-                background: #282623;
-                color: #FF453A;
-                font-size: 9px;
-                font-weight: 700;
-                border-radius: 6px;
-                border: none;
+            QPushButton:hover {
+                background: #28cd41;
             }
         """)
-        deny_btn.clicked.connect(lambda: self.decision_submitted.emit("deny"))
-        ask_layout.addWidget(deny_btn)
+        allow_btn.clicked.connect(lambda: self.decision_submitted.emit("allow"))
+        btns_row2.addWidget(allow_btn)
+
+        ask_layout.addLayout(btns_row2)
 
         self.ask_banner.setVisible(False)
         layout.addWidget(self.ask_banner)
 
         layout.addStretch()
 
+        # Connect External Signals
+        global_signals.set_emotion.connect(self.set_emotion)
+        if HAS_VOICE_ENGINE:
+            voice_bridge.wake_word_detected.connect(self.on_wake_word)
+            voice_bridge.voice_phrase_recognized.connect(self.on_voice_phrase)
+            voice_bridge.speaking_state_changed.connect(self.on_speaking_state)
+
+        if self.commentary_engine:
+            self.commentary_engine.commentary_ready.connect(self.on_game_commentary)
+
+    def set_ask_data(self, agent, command):
+        self.ask_agent_lbl.setText(f"coucou: {agent} запрашивает команду")
+        self.ask_cmd_box.setText(command)
+        self.speech_bubble.setVisible(False)
+        self.ask_banner.setVisible(True)
+        self.robo.set_mode("surprised", duration_ms=10000)
+
+    def hide_ask_data(self):
+        self.ask_banner.setVisible(False)
+        self.speech_bubble.setVisible(True)
+
+    def set_emotion(self, emotion):
+        self.robo.set_mode(emotion, duration_ms=4000)
+
+    def update_pet_btn_state(self, is_active: bool):
+        if is_active:
+            self.pet_btn.setText("🏠 Вернуть маскота в остров")
+            self.pet_btn.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #064E3B, stop:1 #022C22);
+                    color: #5CE07A;
+                    border: 1px solid rgba(92, 224, 122, 0.5);
+                    border-radius: 8px;
+                    font-size: 10px;
+                    font-weight: 700;
+                    padding: 4px 10px;
+                }
+                QPushButton:hover {
+                    background: #5CE07A;
+                    color: #000000;
+                }
+            """)
+        else:
+            self.pet_btn.setText("🐾 Спрыгнуть на рабочий стол")
+            self.pet_btn.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1E293B, stop:1 #0F172A);
+                    color: #38BDF8;
+                    border: 1px solid rgba(56, 189, 248, 0.4);
+                    border-radius: 8px;
+                    font-size: 10px;
+                    font-weight: 700;
+                    padding: 4px 10px;
+                }
+                QPushButton:hover {
+                    background: #38BDF8;
+                    color: #000000;
+                }
+            """)
+
+    def toggle_microphone(self):
+        if not HAS_VOICE_ENGINE:
+            return
+        is_on = VoiceInputEngine.get().toggle()
+        if is_on:
+            self.mic_btn.setText("🎙️ Микрофон: ВКЛ")
+            self.mic_btn.setStyleSheet("""
+                QPushButton {
+                    background: rgba(48, 209, 88, 0.2);
+                    color: #30D158;
+                    border: 1px solid #30D158;
+                    border-radius: 8px;
+                    font-size: 10px;
+                    font-weight: 700;
+                }
+            """)
+            self.speech_bubble.setText("«Слушаю вас! Скажите 'Байя', 'Привет' или 'Остров'»")
+        else:
+            self.mic_btn.setText("🎙️ Микрофон: Выкл")
+            self.mic_btn.setStyleSheet("""
+                QPushButton {
+                    background: #1C1C1E;
+                    color: #8E8E93;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 8px;
+                    font-size: 10px;
+                    font-weight: 700;
+                }
+            """)
+
+    def toggle_commentary(self):
+        if not self.commentary_engine:
+            return
+        is_on = self.commentary_engine.toggle_auto()
+        if is_on:
+            self.game_btn.setText("🎮 Стример: ВКЛ")
+            self.game_btn.setStyleSheet("""
+                QPushButton {
+                    background: rgba(191, 90, 242, 0.2);
+                    color: #BF5AF2;
+                    border: 1px solid #BF5AF2;
+                    border-radius: 8px;
+                    font-size: 10px;
+                    font-weight: 700;
+                }
+            """)
+            self.commentary_engine.trigger_commentary(forced=True)
+        else:
+            self.game_btn.setText("🎮 Стример: Выкл")
+            self.game_btn.setStyleSheet("""
+                QPushButton {
+                    background: #1C1C1E;
+                    color: #8E8E93;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 8px;
+                    font-size: 10px;
+                    font-weight: 700;
+                }
+            """)
+
+    def test_speech(self):
+        phrases = [
+            "Привет! Все системы TwoCode Dynamic Island работают в штатном режиме!",
+            "Я рядом и готова помочь в любой момент!",
+            "Отличная музыка и отличный темп работы!"
+        ]
+        phrase = random.choice(phrases)
+        self.speech_bubble.setText(f"«{phrase}»")
+        self.robo.set_mode("happy", duration_ms=3000)
+        if HAS_VOICE_ENGINE:
+            VoiceEngine.get().speak(phrase)
+
+    def on_wake_word(self, text):
+        self.speech_bubble.setText(f"«Услышала вас: {text}»")
+        self.robo.set_mode("star", duration_ms=3500)
+        if HAS_VOICE_ENGINE:
+            VoiceEngine.get().speak("Слушаю вас! Чем могу помочь?")
+
+    def on_voice_phrase(self, text):
+        self.speech_bubble.setText(f"«Вы сказали: {text}»")
+        self.robo.set_mode("thinking", duration_ms=2500)
+
+    def on_speaking_state(self, is_speaking):
+        if is_speaking:
+            self.robo.set_mode("happy")
+        else:
+            if self.robo.mode == "happy":
+                self.robo.set_mode("idle")
+
+    def on_game_commentary(self, text, emotion):
+        self.speech_bubble.setText(f"«{text}»")
+        self.robo.set_mode(emotion, duration_ms=4500)
+        if HAS_VOICE_ENGINE:
+            VoiceEngine.get().speak(text)
+
     def set_music_mode(self, is_playing, track_info=""):
         if is_playing:
             self.robo.set_mode("music")
-            self.status_lbl.setText(f"Слушает музыку ♫")
+            self.status_lbl.setText("Слушает музыку ♫")
             if track_info:
-                self.sub_lbl.setText(track_info)
+                self.speech_bubble.setText(f"♪ {track_info}")
         else:
             if self.robo.mode == "music":
                 self.robo.set_mode("idle")
                 self.status_lbl.setText("Робот TwoCode: В ожидании")
-                self.sub_lbl.setText("Ассистент автоматически реагирует на задачи и музыку")
+                self.speech_bubble.setText("«Ассистент автоматически реагирует на задачи и музыку»")
 
 
 # ==============================================================================
@@ -1340,11 +2103,11 @@ class SettingsTabWidget(QWidget):
         gh_row.addWidget(gh_lbl)
         gh_row.addStretch()
 
-        gh_btn = QPushButton("sticiandrei9/dinamic-island")
-        gh_btn.setFixedSize(160, 24)
+        gh_btn = QPushButton("ghant0911-afk/twocode-dynamic-island")
+        gh_btn.setFixedSize(190, 24)
         gh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         gh_btn.setStyleSheet("background: #252730; color: #FFFFFF; font-size: 9px; font-weight: 700; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.2);")
-        gh_btn.clicked.connect(lambda: os.startfile("https://github.com/sticiandrei9/dinamic-island-windows"))
+        gh_btn.clicked.connect(lambda: os.startfile("https://github.com/ghant0911-afk/twocode-dynamic-island"))
         gh_row.addWidget(gh_btn)
         layout.addLayout(gh_row)
 
@@ -1469,7 +2232,7 @@ class TwoCodeIsland(QWidget):
         self.COLLAPSED_W = 176
         self.COLLAPSED_H = 32
         self.EXPANDED_W = 460
-        self.EXPANDED_H = 250
+        self.EXPANDED_H = 270
         self.BT_W = 280
         self.BT_H = 54
 
@@ -1485,6 +2248,13 @@ class TwoCodeIsland(QWidget):
         self.drag_position = QPoint()
 
         self.load_config()
+
+        # Start Screen Perception & Game Commentary Engine
+        if HAS_GAME_COMMENTARY:
+            self.commentary_engine = GameCommentaryEngine(self)
+        else:
+            self.commentary_engine = None
+
         self.init_ui()
 
         self.anim = QPropertyAnimation(self, b"geometry")
@@ -1493,8 +2263,13 @@ class TwoCodeIsland(QWidget):
 
         self.collapse_timer = QTimer(self)
         self.collapse_timer.setSingleShot(True)
-        self.collapse_timer.setInterval(450)
+        self.collapse_timer.setInterval(700)
         self.collapse_timer.timeout.connect(self.auto_collapse)
+
+        # Watchdog for reliable hover exit detection
+        self.hover_watchdog = QTimer(self)
+        self.hover_watchdog.setInterval(250)
+        self.hover_watchdog.timeout.connect(self._check_hover_watchdog)
 
         self.setup_tray_icon()
 
@@ -1505,6 +2280,13 @@ class TwoCodeIsland(QWidget):
         global_signals.bluetooth_popup.connect(self.show_bluetooth_popup)
         global_signals.shelf_add.connect(self.on_remote_shelf_add)
         global_signals.media_state_changed.connect(self.on_media_state_changed)
+        global_signals.expand_requested.connect(self.expand)
+        global_signals.collapse_requested.connect(self.collapse)
+        global_signals.snapshot_requested.connect(self.on_snapshot_requested)
+        global_signals.select_tab.connect(self.on_select_tab)
+        global_signals.pet_toggle_requested.connect(self.toggle_desktop_pet)
+        global_signals.pet_spawn_requested.connect(self.spawn_desktop_pet)
+        global_signals.pet_dismiss_requested.connect(self.dismiss_desktop_pet)
 
         # Start Real Windows Media Watcher
         if HAS_MEDIA_ENGINE:
@@ -1513,6 +2295,8 @@ class TwoCodeIsland(QWidget):
             self.media_watcher = None
 
         self.set_collapsed_geometry(animate=False)
+        if getattr(self, "desktop_pet_enabled", True):
+            QTimer.singleShot(600, self.spawn_desktop_pet)
 
     def init_ui(self):
         outer_layout = QVBoxLayout(self)
@@ -1533,12 +2317,15 @@ class TwoCodeIsland(QWidget):
         # ----------------------------------------------------------------------
         self.pill_widget = QWidget()
         self.pill_widget.setFixedHeight(self.COLLAPSED_H - 8)
+        self.pill_widget.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.pill_widget.mousePressEvent = lambda e: self.expand()
         pill_layout = QHBoxLayout(self.pill_widget)
         pill_layout.setContentsMargins(6, 0, 8, 0)
         pill_layout.setSpacing(6)
 
         # 1. Full Animated TwoCode Robot in the droplet (antenna, orb, eyes, dance)
         self.pill_robo = LiveAnimatedRobo(size=22)
+        self.pill_robo.clicked.connect(self.expand)
         pill_layout.addWidget(self.pill_robo)
 
         # 2. Status / Real Song Label
@@ -1598,9 +2385,10 @@ class TwoCodeIsland(QWidget):
         self.file_shelf = FileShelfWidget()
         self.tab_stack.addWidget(self.file_shelf)
 
-        # Tab 2: Ambient Robot Companion
-        self.robo_tab = AmbientRoboTabWidget()
+        # Tab 2: Ambient Robot Companion with Voice & Streamer Commentary
+        self.robo_tab = AmbientRoboTabWidget(commentary_engine=self.commentary_engine)
         self.robo_tab.decision_submitted.connect(self.on_decision_submitted)
+        self.robo_tab.pet_toggled.connect(self.toggle_desktop_pet)
         self.tab_stack.addWidget(self.robo_tab)
 
         # Tab 3: Tools Dashboard
@@ -1647,11 +2435,17 @@ class TwoCodeIsland(QWidget):
             self.pill_robo.set_mode("music")
             self.pill_eq.set_active(True)
             self.robo_tab.set_music_mode(True, f"{state.title} · {state.artist}")
+            self.current_media_playing = True
+            if getattr(self, "desktop_pet", None):
+                self.desktop_pet.set_music(True)
         else:
             if self.pill_robo.mode == "music":
                 self.pill_robo.set_mode("idle")
             self.pill_eq.set_active(False)
             self.robo_tab.set_music_mode(False)
+            self.current_media_playing = False
+            if getattr(self, "desktop_pet", None):
+                self.desktop_pet.set_music(False)
 
     def minimumSizeHint(self):
         if not self.is_expanded:
@@ -1676,9 +2470,18 @@ class TwoCodeIsland(QWidget):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() or event.mimeData().hasText():
             event.acceptProposedAction()
+            self.pill_robo.set_mode("hungry")
             if not self.is_expanded:
                 self.expand()
                 self.dock.select_tab(1)
+            if hasattr(self, 'file_shelf'):
+                self.file_shelf.set_hungry(True)
+
+    def dragLeaveEvent(self, event):
+        if self.pill_robo.mode == "hungry":
+            self.pill_robo.set_mode("idle")
+        if hasattr(self, 'file_shelf'):
+            self.file_shelf.set_hungry(False)
 
     def dropEvent(self, event):
         paths = []
@@ -1688,8 +2491,17 @@ class TwoCodeIsland(QWidget):
                 if lp and os.path.exists(lp):
                     paths.append(lp)
         if paths:
-            self.file_shelf.add_files(paths, animate=True)
-            self.pill_robo.set_mode("heart", 2500)
+            fname = os.path.basename(paths[0])
+            if len(paths) > 1:
+                fname += f" (+{len(paths)-1})"
+            play_sound("eat")
+            self.pill_robo.set_mode("eating", duration_ms=2800)
+            if hasattr(self, 'file_shelf'):
+                self.file_shelf.trigger_eat_animation(fname)
+                self.file_shelf.add_files(paths, animate=True)
+            if hasattr(self, 'robo_tab') and hasattr(self.robo_tab, 'robo'):
+                self.robo_tab.robo.set_mode("eating", duration_ms=2800)
+                self.robo_tab.speech_bubble.setText(f"😋 Ням! Скушал {fname}! Файл сохранён на полку!")
             event.acceptProposedAction()
 
     def get_active_screen(self):
@@ -1714,6 +2526,10 @@ class TwoCodeIsland(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            if not self.is_expanded:
+                self.expand()
+                event.accept()
+                return
             self.dragging = True
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
@@ -1753,17 +2569,39 @@ class TwoCodeIsland(QWidget):
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        if not self.is_pinned and not self.is_bt_showing:
-            self.collapse_timer.start()
+        if not self.is_pinned and not self.is_bt_showing and not self.dragging:
+            cursor_pos = QCursor.pos()
+            if not self.geometry().contains(cursor_pos):
+                self.collapse_timer.start(700)
+            else:
+                self.collapse_timer.stop()
         super().leaveEvent(event)
 
+    def _check_hover_watchdog(self):
+        if self.is_expanded and not self.is_pinned and not self.is_bt_showing and not self.dragging:
+            cursor_pos = QCursor.pos()
+            if not self.geometry().contains(cursor_pos):
+                if not self.collapse_timer.isActive():
+                    self.collapse_timer.start(650)
+            else:
+                if self.collapse_timer.isActive():
+                    self.collapse_timer.stop()
+
     def auto_collapse(self):
-        if not self.is_pinned and not self.is_bt_showing:
-            self.collapse()
+        if not self.is_pinned and not self.is_bt_showing and not self.dragging:
+            cursor_pos = QCursor.pos()
+            if not self.geometry().contains(cursor_pos):
+                self.collapse()
+            else:
+                self.collapse_timer.stop()
 
     def expand(self):
         self.is_expanded = True
+        # Fluid hover: do NOT force is_pinned = True
         self.is_bt_showing = False
+        self.collapse_timer.stop()
+        if not self.is_pinned:
+            self.hover_watchdog.start(250)
         self.setMinimumSize(self.EXPANDED_W, self.EXPANDED_H)
         self.setMaximumSize(self.EXPANDED_W, self.EXPANDED_H)
         self.main_stack.setCurrentWidget(self.expanded_widget)
@@ -1781,7 +2619,12 @@ class TwoCodeIsland(QWidget):
 
     def collapse(self):
         self.is_expanded = False
+        self.is_pinned = False
         self.is_bt_showing = False
+        self.collapse_timer.stop()
+        self.hover_watchdog.stop()
+        if hasattr(self, 'pin_btn'):
+            self.pin_btn.setStyleSheet("color: #8E8E93; background: transparent; border: none; font-size: 11px;")
         self.main_stack.setCurrentWidget(self.pill_widget)
         self.setMinimumSize(self.COLLAPSED_W, self.COLLAPSED_H)
         self.setMaximumSize(self.COLLAPSED_W, self.COLLAPSED_H)
@@ -1861,6 +2704,15 @@ class TwoCodeIsland(QWidget):
                 font-size: 11px;
             }}
         """)
+        if self.is_pinned:
+            self.collapse_timer.stop()
+            self.hover_watchdog.stop()
+        else:
+            cursor_pos = QCursor.pos()
+            if not self.geometry().contains(cursor_pos):
+                self.collapse_timer.start(650)
+            else:
+                self.hover_watchdog.start(250)
 
     def reset_to_center(self):
         self.custom_x = None
@@ -1876,7 +2728,16 @@ class TwoCodeIsland(QWidget):
         self.save_config()
 
     def on_remote_shelf_add(self, files):
+        fname = os.path.basename(files[0]) if files else "файл"
+        if len(files) > 1:
+            fname += f" (+{len(files)-1})"
+        play_sound("eat")
+        self.pill_robo.set_mode("eating", duration_ms=2800)
+        self.file_shelf.trigger_eat_animation(fname)
         self.file_shelf.add_files(files, animate=True)
+        if hasattr(self, 'robo_tab') and hasattr(self.robo_tab, 'robo'):
+            self.robo_tab.robo.set_mode("eating", duration_ms=2800)
+            self.robo_tab.speech_bubble.setText(f"😋 Ням! Скушал {fname}! Файл сохранён на полку!")
         self.expand()
         self.dock.select_tab(1)
 
@@ -1885,22 +2746,85 @@ class TwoCodeIsland(QWidget):
         self.pill_title.setText(action[:14])
 
     def on_agent_ask(self, data):
-        prompt = data.get("prompt", "Разрешить действие?")
-        self.robo_tab.ask_text.setText(f"Запрос: {prompt}")
-        self.robo_tab.ask_banner.setVisible(True)
+        agent = data.get("agent", "Antigravity")
+        cmd = data.get("command") or data.get("prompt") or data.get("question") or "npm run build"
+        self.robo_tab.set_ask_data(agent, cmd)
         self.expand()
         self.dock.select_tab(2)
+        self.pill_robo.set_mode("surprised", duration_ms=10000)
         play_sound("alert")
 
+    def keyPressEvent(self, event):
+        if self.robo_tab.ask_banner.isVisible():
+            if event.key() == Qt.Key.Key_Y:
+                self.on_decision_submitted("allow")
+                event.accept()
+                return
+            elif event.key() == Qt.Key.Key_N:
+                self.on_decision_submitted("deny")
+                event.accept()
+                return
+        if event.key() == Qt.Key.Key_Escape:
+            if self.is_expanded:
+                self.is_pinned = False
+                self.collapse()
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
     def on_agent_done(self, data):
-        self.robo_tab.ask_banner.setVisible(False)
+        self.robo_tab.hide_ask_data()
         self.pill_robo.set_mode("heart", 3000)
         play_sound("chime")
 
     def on_decision_submitted(self, decision):
-        self.robo_tab.ask_banner.setVisible(False)
+        self.robo_tab.hide_ask_data()
         global_signals.decision_made.emit(decision)
         play_sound("click")
+
+    def on_snapshot_requested(self, path):
+        if not path:
+            path = os.path.join(os.path.dirname(__file__), "island_snapshot.png")
+        pix = self.grab()
+        pix.save(path, "PNG")
+        print(f"Island snapshot saved to: {path}")
+
+    def on_select_tab(self, idx):
+        self.expand()
+        self.dock.select_tab(idx)
+
+    def spawn_desktop_pet(self):
+        if not getattr(self, "desktop_pet", None):
+            try:
+                from desktop_pet import DesktopRoboPet
+                self.desktop_pet = DesktopRoboPet()
+                self.desktop_pet.dismiss_requested.connect(self.dismiss_desktop_pet)
+                self.desktop_pet.jump_to_island_requested.connect(self.dismiss_desktop_pet)
+            except Exception as e:
+                print(f"[Island] Error creating DesktopRoboPet: {e}")
+                return
+        if self.desktop_pet:
+            if getattr(self, "current_media_playing", False):
+                self.desktop_pet.set_music(True)
+            self.desktop_pet.show()
+            self.desktop_pet_enabled = True
+            self.save_config()
+            if hasattr(self, "robo_tab"):
+                self.robo_tab.update_pet_btn_state(True)
+
+    def dismiss_desktop_pet(self):
+        if getattr(self, "desktop_pet", None):
+            self.desktop_pet.hide()
+        self.desktop_pet_enabled = False
+        self.save_config()
+        if hasattr(self, "robo_tab"):
+            self.robo_tab.update_pet_btn_state(False)
+
+    def toggle_desktop_pet(self):
+        if getattr(self, "desktop_pet_enabled", False) and getattr(self, "desktop_pet", None) and self.desktop_pet.isVisible():
+            self.dismiss_desktop_pet()
+        else:
+            self.spawn_desktop_pet()
 
     def setup_tray_icon(self):
         self.tray = QSystemTrayIcon(self)
@@ -1915,6 +2839,9 @@ class TwoCodeIsland(QWidget):
         act_top.setCheckable(True)
         act_top.setChecked(self.always_on_top)
         act_top.triggered.connect(self.set_always_on_top)
+
+        act_pet = menu.addAction("🐾 Маскот на рабочем столе")
+        act_pet.triggered.connect(self.toggle_desktop_pet)
 
         act_shelf = menu.addAction("📂 Полка файлов")
         act_shelf.triggered.connect(lambda: (self.expand(), self.dock.select_tab(1)))
@@ -1955,6 +2882,7 @@ class TwoCodeIsland(QWidget):
                     cfg = json.load(f)
                     self.sound_enabled = cfg.get("sound_enabled", True)
                     self.always_on_top = cfg.get("always_on_top", True)
+                    self.desktop_pet_enabled = cfg.get("desktop_pet_enabled", True)
                     self.custom_x = cfg.get("pos_x", None)
                     self.custom_y = cfg.get("pos_y", None)
             except Exception:
@@ -1965,6 +2893,7 @@ class TwoCodeIsland(QWidget):
             cfg = {
                 "sound_enabled": self.sound_enabled,
                 "always_on_top": self.always_on_top,
+                "desktop_pet_enabled": getattr(self, 'desktop_pet_enabled', True),
                 "pos_x": self.custom_x,
                 "pos_y": self.custom_y
             }
@@ -1975,11 +2904,23 @@ class TwoCodeIsland(QWidget):
 
 
 def start_http_server():
+    port = 28283
     try:
-        server = ReusableHTTPServer(("127.0.0.1", 28282), IslandAPIHandler)
-        server.serve_forever()
-    except Exception as e:
-        print(f"HTTP Server error: {e}")
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                port = cfg.get("http_port", 28283)
+    except Exception:
+        pass
+
+    for candidate in [port, 28283, 28284, 28285]:
+        try:
+            server = ReusableHTTPServer(("127.0.0.1", candidate), IslandAPIHandler)
+            print(f"Unified Sandbox Island HTTP Daemon listening on port {candidate}")
+            server.serve_forever()
+            break
+        except Exception:
+            continue
 
 if __name__ == "__main__":
     server_thread = threading.Thread(target=start_http_server, daemon=True)
@@ -1990,5 +2931,7 @@ if __name__ == "__main__":
 
     island = TwoCodeIsland()
     island.show()
+    # Pop open on start so the user can immediately interact with buttons & tabs
+    QTimer.singleShot(400, island.expand)
 
     sys.exit(app.exec())
