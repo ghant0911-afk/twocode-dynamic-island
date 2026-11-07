@@ -1,9 +1,17 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.log
-*.tmp
-.system_generated/
-_make_shortcut.vbs
+
+# Temp dumps and artifacts
+twocode_dump.html
+windows_found.json
+taskbar_boundary.png
+
+# IDE
 .vscode/
 .idea/
+*.bak
+shelf_files.json
+notes.txt

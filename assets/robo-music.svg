@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <!-- DJ Headphones Arch -->
+        <path d="M16 46 A34 34 0 0 1 84 46" fill="none" stroke="#8B5CF6" stroke-width="6" stroke-linecap="round"/>
+        <rect x="12" y="38" width="10" height="20" rx="5" fill="#A78BFA"/>
+        <rect x="78" y="38" width="10" height="20" rx="5" fill="#A78BFA"/>
+        <!-- Antenna -->
+        <line x1="50" y1="20" x2="50" y2="10" stroke="#D9653B" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="50" cy="8" r="5" fill="#EC4899"/>
+        <!-- Head -->
+        <rect x="22" y="22" width="56" height="46" rx="17" fill="#FFFFFF" stroke="#E6E0D8" stroke-width="2"/>
+        <!-- Screen Face -->
+        <rect x="28" y="28" width="44" height="34" rx="11" fill="#181715"/>
+        <!-- Joyful Singing/Dancing Curved Eyes -->
+        <path d="M34 44 Q40 37 46 44" fill="none" stroke="#EC4899" stroke-width="3.5" stroke-linecap="round"/>
+        <path d="M54 44 Q60 37 66 44" fill="none" stroke="#EC4899" stroke-width="3.5" stroke-linecap="round"/>
+        <!-- Cute Smile -->
+        <path d="M45 52 Q50 56 55 52" fill="none" stroke="#EC4899" stroke-width="2.5" stroke-linecap="round"/>
+        <!-- Musical notes -->
+        <path d="M84 20 L84 10 L94 13 L94 23 M84 15 L94 18" stroke="#10B981" stroke-width="2" fill="none"/>
+        <circle cx="82" cy="21" r="3" fill="#10B981"/>
+        <circle cx="92" cy="24" r="3" fill="#10B981"/>
+    </svg>

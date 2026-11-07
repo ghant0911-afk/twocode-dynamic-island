@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <!-- Party Hat -->
+        <polygon points="50,2 38,24 62,24" fill="#F59E0B"/>
+        <circle cx="50" cy="2" r="4" fill="#EF4444"/>
+        <line x1="42" y1="12" x2="58" y2="12" stroke="#3B82F6" stroke-width="2"/>
+        <line x1="40" y1="18" x2="60" y2="18" stroke="#10B981" stroke-width="2"/>
+        <!-- Head -->
+        <rect x="20" y="24" width="60" height="48" rx="18" fill="#FFFFFF" stroke="#E6E0D8" stroke-width="2"/>
+        <!-- Screen Face -->
+        <rect x="26" y="30" width="48" height="36" rx="12" fill="#181715"/>
+        <!-- Starry Happy Eyes -->
+        <path d="M38 42 L39 46 L43 47 L39 48 L38 52 L37 48 L33 47 L37 46 Z" fill="#30D158"/>
+        <path d="M62 42 L63 46 L67 47 L63 48 L62 52 L61 48 L57 47 L61 46 Z" fill="#30D158"/>
+        <!-- Big Smile -->
+        <path d="M42 54 Q50 62 58 54" fill="none" stroke="#30D158" stroke-width="3" stroke-linecap="round"/>
+        <!-- Confetti -->
+        <circle cx="14" cy="26" r="3" fill="#EC4899"/>
+        <rect x="80" y="28" width="5" height="5" fill="#3B82F6" transform="rotate(25 82 30)"/>
+        <circle cx="86" cy="60" r="3" fill="#F59E0B"/>
+        <circle cx="16" cy="64" r="3" fill="#10B981"/>
+    </svg>
