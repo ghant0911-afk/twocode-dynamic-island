@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Astra Sendagaya Shino 3D VRM Pet</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: transparent !important;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      user-select: none;
+    }
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      background: transparent !important;
+    }
+  </style>
+
+  <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+        "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@2.0.6/lib/three-vrm.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+    const container = document.getElementById('canvas-container');
+
+    // 1. Renderer with complete alpha transparency
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setClearColor(0x000000, 0); // Transparent background
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    container.appendChild(renderer.domElement);
+
+    // 2. Camera & Scene
+    const camera = new THREE.PerspectiveCamera(27.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
+    camera.position.set(0.0, 1.25, 2.2);
+
+    const scene = new THREE.Scene();
+
+    // 3. Lighting (Warm anime lighting)
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    keyLight.position.set(1.0, 2.0, 1.5).normalize();
+    scene.add(keyLight);
+
+    const ambientLight = new THREE.AmbientLight(0xfff1f2, 0.95);
+    scene.add(ambientLight);
+
+    const fillLight = new THREE.DirectionalLight(0xec4899, 0.5);
+    fillLight.position.set(-1.2, 1.0, -1.0).normalize();
+    scene.add(fillLight);
+
+    let currentVRM = null;
+    let currentState = 'idle'; // idle, walk, dance, picked_up, hurt, sit
+    let isTalking = false;
+    let talkTimer = 0;
+
+    // 4. VRM Loader
+    const loader = new GLTFLoader();
+    loader.register((parser) => new VRMLoaderPlugin(parser));
+
+    loader.load(
+      'Sendagaya_Shino.vrm',
+      (gltf) => {
+        const vrm = gltf.userData.vrm;
+        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+        VRMUtils.removeUnnecessaryJoints(gltf.scene);
+
+        scene.add(vrm.scene);
+        currentVRM = vrm;
+
+        // Face forward
+        vrm.scene.rotation.y = Math.PI;
+
+        // Cute anime arm resting pose
+        const leftArm = vrm.humanoid?.getNormalizedBoneNode('leftUpperArm');
+        const rightArm = vrm.humanoid?.getNormalizedBoneNode('rightUpperArm');
+        if (leftArm && rightArm) {
+          leftArm.rotation.z = 1.25;
+          rightArm.rotation.z = -1.25;
+        }
+
+        console.log('Sendagaya Shino 3D loaded!');
+      },
+      undefined,
+      (err) => console.error('Error loading Shino VRM:', err)
+    );
+
+    // 5. Global API exposed to Python PyQt6
+    window.setPetState = (state) => {
+      currentState = state || 'idle';
+      if (!currentVRM?.expressionManager) return;
+
+      ['happy', 'relaxed', 'surprised', 'sad', 'angry'].forEach(e => {
+        currentVRM.expressionManager.setValue(e, 0);
+      });
+
+      if (currentState === 'dance') {
+        currentVRM.expressionManager.setValue('happy', 1.0);
+      } else if (currentState === 'picked_up') {
+        currentVRM.expressionManager.setValue('surprised', 1.0);
+      } else if (currentState === 'hurt') {
+        currentVRM.expressionManager.setValue('sad', 0.9);
+      } else if (currentState === 'sit') {
+        currentVRM.expressionManager.setValue('relaxed', 1.0);
+      }
+    };
+
+    window.setTalking = (talking) => {
+      isTalking = Boolean(talking);
+      if (!isTalking && currentVRM?.expressionManager) {
+        currentVRM.expressionManager.setValue('aa', 0);
+        currentVRM.expressionManager.setValue('oh', 0);
+      }
+    };
+
+    // 6. 3D Animation Loop
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      if (currentVRM) {
+        currentVRM.update(delta);
+
+        // Blinking (Natural periodic)
+        if (currentState !== 'hurt' && currentState !== 'dance') {
+          const blinkCycle = Math.sin(time * 1.5);
+          if (blinkCycle > 0.95) {
+            const blinkVal = Math.sin((blinkCycle - 0.95) / 0.05 * Math.PI);
+            currentVRM.expressionManager?.setValue('blink', blinkVal);
+          } else {
+            currentVRM.expressionManager?.setValue('blink', 0.0);
+          }
+        }
+
+        // Real-time lip-sync mouth opening
+        if (isTalking) {
+          talkTimer += delta * 15.0;
+          const openA = (Math.sin(talkTimer) + 1.0) * 0.45;
+          const openO = (Math.cos(talkTimer * 0.8) + 1.0) * 0.35;
+          currentVRM.expressionManager?.setValue('aa', openA);
+          currentVRM.expressionManager?.setValue('oh', openO);
+        }
+
+        // State-specific 3D Bone Kinematics
+        const spine = currentVRM.humanoid?.getNormalizedBoneNode('spine');
+        const head = currentVRM.humanoid?.getNormalizedBoneNode('head');
+        const leftArm = currentVRM.humanoid?.getNormalizedBoneNode('leftUpperArm');
+        const rightArm = currentVRM.humanoid?.getNormalizedBoneNode('rightUpperArm');
+
+        if (currentState === 'dance') {
+          // Dance Rhythm Motion
+          const beat = time * 5.0;
+          if (spine) {
+            spine.rotation.x = Math.sin(beat) * 0.06;
+            spine.rotation.y = Math.cos(beat * 0.5) * 0.12;
+          }
+          if (head) {
+            head.rotation.z = Math.sin(beat * 0.5) * 0.14;
+            head.rotation.y = -Math.cos(beat * 0.5) * 0.08;
+          }
+          if (leftArm && rightArm) {
+            leftArm.rotation.z = 1.1 + Math.sin(beat) * 0.25;
+            rightArm.rotation.z = -1.1 - Math.cos(beat) * 0.25;
+          }
+        } else if (currentState === 'picked_up') {
+          // Dangling / Floating in mid-air
+          if (spine) spine.rotation.x = -0.05;
+          if (head) head.rotation.x = 0.1;
+          if (leftArm && rightArm) {
+            leftArm.rotation.z = 1.45 + Math.sin(time * 3.0) * 0.15;
+            rightArm.rotation.z = -1.45 - Math.sin(time * 3.0) * 0.15;
+          }
+        } else if (currentState === 'hurt') {
+          // Dizzy / Dazed head tilt
+          if (spine) spine.rotation.x = 0.08;
+          if (head) {
+            head.rotation.z = Math.sin(time * 4.0) * 0.18;
+            head.rotation.x = 0.12;
+          }
+        } else if (currentState === 'walk') {
+          // Walking step sway
+          const step = time * 4.0;
+          if (spine) {
+            spine.rotation.y = Math.sin(step) * 0.08;
+            spine.rotation.z = Math.cos(step) * 0.03;
+          }
+          if (head) head.rotation.y = -Math.sin(step) * 0.05;
+        } else {
+          // Idle gentle breathing
+          if (spine) spine.rotation.x = Math.sin(time * 1.8) * 0.02;
+          if (head) {
+            head.rotation.y = Math.sin(time * 0.8) * 0.04;
+            head.rotation.z = Math.cos(time * 0.8) * 0.02;
+          }
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

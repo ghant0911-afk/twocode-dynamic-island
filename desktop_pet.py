@@ -1,3 +1,11 @@
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWebEngineCore import QWebEngineSettings
+    WEBENGINE_AVAILABLE = True
+except Exception:
+    WEBENGINE_AVAILABLE = False
+from PyQt6.QtCore import QUrl, QEvent
+
 import os
 import sys
 import math
@@ -141,6 +149,26 @@ class DesktopRoboPet(QWidget):
         self.character = "shino"   # "shino" (Sendagaya Shino / Astra VRM) or "robo"
         self.is_speaking = False
         self.speech_tick = 0.0
+        # Real 3D VRM Engine View (for Sendagaya Shino / Astra 3D)
+        self.vrm_view = None
+        if WEBENGINE_AVAILABLE:
+            try:
+                self.vrm_view = QWebEngineView(self)
+                self.vrm_view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                self.vrm_view.setStyleSheet("background: transparent;")
+                self.vrm_view.page().setBackgroundColor(QColor(0, 0, 0, 0))
+                self.vrm_view.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+                self.vrm_view.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+                self.vrm_view.settings().setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
+                self.vrm_view.setUrl(QUrl("http://127.0.0.1:8098/vrm_pet.html"))
+                self.vrm_view.resize(self.width(), self.height())
+                self.vrm_view.installEventFilter(self)
+                if self.vrm_view.focusProxy():
+                    self.vrm_view.focusProxy().installEventFilter(self)
+            except Exception as e:
+                print(f"[DesktopPet] VRM WebEngine init note: {e}")
+                self.vrm_view = None
+
 
         # Animation Ticks & Kinematics
         self.anim_tick = 0
@@ -570,11 +598,61 @@ class DesktopRoboPet(QWidget):
 
     def set_character(self, char_name):
         self.character = char_name
+        if hasattr(self, 'vrm_view') and self.vrm_view:
+            if self.character == "shino":
+                self.vrm_view.show()
+                self._sync_vrm_state()
+            else:
+                self.vrm_view.hide()
         self.update()
 
     def open_vrm_viewer(self):
         import webbrowser
         webbrowser.open("http://127.0.0.1:8098/vrm_viewer.html")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'vrm_view') and self.vrm_view:
+            self.vrm_view.resize(self.size())
+
+    def eventFilter(self, watched, event):
+        if hasattr(self, 'vrm_view') and self.vrm_view and (watched == self.vrm_view or watched == self.vrm_view.focusProxy()):
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self.dragging = True
+                    self.state = self.STATE_PICKED_UP
+                    self.hurt_timer = 0
+                    self.squash_factor = 1.0
+                    self._sync_vrm_state()
+                    self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                    return True
+                elif event.button() == Qt.MouseButton.RightButton:
+                    self.contextMenuEvent(event)
+                    return True
+            elif event.type() == QEvent.Type.MouseMove and self.dragging:
+                self.move(event.globalPosition().toPoint() - self.drag_offset)
+                return True
+            elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                if self.dragging:
+                    self.dragging = False
+                    if self.y() < self.floor_y - 20:
+                        self.state = self.STATE_FALLING
+                        self.fall_start_y = self.y()
+                        self.vy = 0
+                    else:
+                        self.move(self.x(), self.floor_y)
+                        self.state = self.STATE_IDLE
+                    self._sync_vrm_state()
+                    return True
+        return super().eventFilter(watched, event)
+
+    def _sync_vrm_state(self):
+        if hasattr(self, 'vrm_view') and self.vrm_view and self.character == "shino":
+            self.vrm_view.page().runJavaScript(f"window.setPetState && window.setPetState('{self.state}')")
+
+    def _sync_vrm_talking(self, talking):
+        if hasattr(self, 'vrm_view') and self.vrm_view and self.character == "shino":
+            self.vrm_view.page().runJavaScript(f"window.setTalking && window.setTalking({str(talking).lower()})")
 
     def _set_manual_state(self, new_state):
         self.state = new_state
@@ -587,6 +665,36 @@ class DesktopRoboPet(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # -------------------------------------------------------------
+        # Real 3D VRM Mode: If Sendagaya Shino 3D VRM is active, show WebEngine view
+        # -------------------------------------------------------------
+        if getattr(self, 'character', 'shino') == 'shino' and hasattr(self, 'vrm_view') and self.vrm_view:
+            if not self.vrm_view.isVisible():
+                self.vrm_view.show()
+                self._sync_vrm_state()
+            # Draw floating vector particles (hearts, notes, orbit stars) over 3D model
+            for pt in self.particles:
+                if pt["type"] == "note":
+                    col = QColor(pt["color"])
+                    col.setAlpha(pt["alpha"])
+                    if pt.get("is_double", False):
+                        draw_vector_double_note(p, pt["x"], pt["y"], pt["size"] * 1.15, col)
+                    else:
+                        draw_vector_note(p, pt["x"], pt["y"], pt["size"] * 1.15, col)
+                elif pt["type"] == "dizzy_star":
+                    col = QColor(pt["color"])
+                    col.setAlpha(pt["alpha"])
+                    draw_vector_star(p, pt["x"], pt["y"], pt["size"], col)
+                elif pt["type"] == "heart":
+                    col = QColor(pt["color"])
+                    col.setAlpha(pt["alpha"])
+                    draw_vector_heart(p, pt["x"], pt["y"], pt["r"], col)
+            return
+
+        if hasattr(self, 'vrm_view') and self.vrm_view and self.vrm_view.isVisible():
+            self.vrm_view.hide()
+
         w = self.width()
         h = self.height()
         s = w / 120.0
