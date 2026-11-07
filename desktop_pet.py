@@ -287,6 +287,17 @@ class DesktopRoboPet(QWidget):
 
         self.anim_tick += 1
 
+        # Auto-sync state and facing changes to 3D VRM runtime
+        if not hasattr(self, '_last_synced_vrm_state'):
+            self._last_synced_vrm_state = None
+            self._last_synced_facing = None
+
+        curr_facing = getattr(self, 'facing_direction', 1)
+        if self._last_synced_vrm_state != self.state or self._last_synced_facing != curr_facing:
+            self._last_synced_vrm_state = self.state
+            self._last_synced_facing = curr_facing
+            self._sync_vrm_state()
+
         # Periodic Blinking
         if self.anim_tick % 120 == 0:
             self.is_blinking = True
@@ -577,6 +588,11 @@ class DesktopRoboPet(QWidget):
         act_dance.triggered.connect(lambda: self._set_manual_state(self.STATE_DANCE))
         menu.addAction(act_dance)
 
+        if self.character == "shino":
+            act_next_dance = QAction("🎵 Сменить стиль танца (Next Style)", self)
+            act_next_dance.triggered.connect(lambda: self.vrm_view.page().runJavaScript("window.nextDance && window.nextDance()") if self.vrm_view else None)
+            menu.addAction(act_next_dance)
+
         # Sit Action
         act_sit = QAction("🪑 Сесть отдохнуть", self)
         act_sit.triggered.connect(lambda: self._set_manual_state(self.STATE_SIT))
@@ -629,9 +645,14 @@ class DesktopRoboPet(QWidget):
                 elif event.button() == Qt.MouseButton.RightButton:
                     self.contextMenuEvent(event)
                     return True
-            elif event.type() == QEvent.Type.MouseMove and self.dragging:
-                self.move(event.globalPosition().toPoint() - self.drag_offset)
-                return True
+            elif event.type() == QEvent.Type.MouseMove:
+                if self.dragging:
+                    self.move(event.globalPosition().toPoint() - self.drag_offset)
+                    return True
+                elif hasattr(self, 'vrm_view') and self.vrm_view:
+                    norm_x = (event.position().x() / max(1, self.width())) * 2.0 - 1.0
+                    norm_y = (event.position().y() / max(1, self.height())) * 2.0 - 1.0
+                    self.vrm_view.page().runJavaScript(f"window.setLookAt && window.setLookAt({norm_x:.2f}, {norm_y:.2f})")
             elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
                 if self.dragging:
                     self.dragging = False
@@ -648,7 +669,8 @@ class DesktopRoboPet(QWidget):
 
     def _sync_vrm_state(self):
         if hasattr(self, 'vrm_view') and self.vrm_view and self.character == "shino":
-            self.vrm_view.page().runJavaScript(f"window.setPetState && window.setPetState('{self.state}')")
+            facing = getattr(self, 'facing_direction', 1)
+            self.vrm_view.page().runJavaScript(f"window.setPetState && window.setPetState('{self.state}', {facing})")
 
     def _sync_vrm_talking(self, talking):
         if hasattr(self, 'vrm_view') and self.vrm_view and self.character == "shino":
@@ -658,6 +680,7 @@ class DesktopRoboPet(QWidget):
         self.state = new_state
         if new_state == self.STATE_DANCE:
             self.has_headphones = True
+        self._sync_vrm_state()
 
     # -------------------------------------------------------------------------
     # Paint Event: Authentic Vector TwoCode Full-Body Mascot

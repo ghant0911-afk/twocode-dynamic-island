@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Astra 3D VRM Viewer</title>
+  <title>Astra 3D VRM Viewer Pro</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -25,38 +25,46 @@
       top: 20px;
       left: 20px;
       z-index: 10;
-      background: rgba(18, 20, 29, 0.85);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(139, 92, 246, 0.3);
-      border-radius: 14px;
-      padding: 16px 20px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-      max-width: 320px;
+      background: rgba(18, 20, 29, 0.88);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(139, 92, 246, 0.35);
+      border-radius: 16px;
+      padding: 18px 22px;
+      box-shadow: 0 12px 35px rgba(0,0,0,0.55);
+      max-width: 340px;
     }
     .hud h2 {
       font-size: 16px;
       font-weight: 700;
       color: #c4b5fd;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
     .hud p {
-      font-size: 12px;
+      font-size: 11px;
       color: #94a3b8;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
       line-height: 1.4;
+    }
+    label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #a78bfa;
+      display: block;
+      margin-bottom: 4px;
+      margin-top: 8px;
     }
     select, button {
       width: 100%;
       padding: 8px 12px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       border-radius: 8px;
       border: 1px solid rgba(255,255,255,0.15);
       background: #1e2235;
       color: #fff;
-      font-size: 13px;
+      font-size: 12px;
       outline: none;
       cursor: pointer;
       transition: all 0.2s;
@@ -86,12 +94,13 @@
       position: absolute;
       bottom: 25px;
       right: 25px;
-      background: rgba(15, 23, 42, 0.85);
-      padding: 8px 16px;
+      background: rgba(15, 23, 42, 0.88);
+      padding: 8px 18px;
       border-radius: 20px;
       font-size: 12px;
       color: #38bdf8;
-      border: 1px solid rgba(56, 189, 248, 0.3);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      backdrop-filter: blur(8px);
       display: none;
     }
   </style>
@@ -104,7 +113,8 @@
       "imports": {
         "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
         "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
-        "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@2.0.6/lib/three-vrm.module.js"
+        "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.2/lib/three-vrm.module.js",
+        "@pixiv/three-vrm-animation": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm-animation@2.1.2/lib/three-vrm-animation.module.js"
       }
     }
   </script>
@@ -114,23 +124,42 @@
   <div id="canvas-container"></div>
 
   <div class="hud">
-    <h2>✨ Astra 3D VRM Companion</h2>
-    <p>3D аватар помощника с анимацией дыхания, моргания и синхронизацией губ (лип-синк).</p>
+    <h2>✨ Astra 3D VRM Studio Pro</h2>
+    <p>Студия 3D аватаров с настоящей гуманоидной анимацией Mixamo/VRMA, лип-синком и мимикой.</p>
     
-    <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Выберите 3D VRM модель:</label>
+    <label>3D VRM Модель:</label>
     <select id="model-select">
-      <option value="Sendagaya_Shino.vrm" selected>Sendagaya Shino (Астра / Стритвир & Худи)</option>
+      <option value="Sendagaya_Shino.vrm" selected>Sendagaya Shino (Астра / Официальная)</option>
       <option value="AvatarSample_B.vrm">AvatarSample_B (Астра / Стелла)</option>
       <option value="AvatarSample_A.vrm">AvatarSample_A (Кибер Твинтейл)</option>
       <option value="Victoria_Rubin.vrm">Victoria Rubin (VTuber Princess)</option>
       <option value="AvatarSample_C.vrm">AvatarSample_C (Cyber Dark)</option>
     </select>
 
+    <label>3D VRMA Скелетная Анимация:</label>
+    <select id="anim-select">
+      <option value="idle_loop.vrma" selected>🧘 Idle (Дыхание и покачивание)</option>
+      <option value="running.vrma">🏃 Walk & Run (Бег и ходьба)</option>
+      <option value="dance_1.vrma">💃 Pop Dance 1 (Сценический танец)</option>
+      <option value="dance_2.vrma">✨ Pop Dance 2 (Аниме-грув)</option>
+      <option value="hiphop.vrma">🎤 Hip-Hop Dance (Хип-хоп)</option>
+      <option value="twist_dance.vrma">🌀 Twist Dance (Твист)</option>
+      <option value="silly_dance.vrma">😜 Silly Dance (Веселый танец)</option>
+      <option value="samba.vrma">🌺 Samba Rhythm (Самба)</option>
+      <option value="breakdance.vrma">🤸 Breakdance (Брейк-данс)</option>
+      <option value="hanging.vrma">🎈 Hanging (Висеть в воздухе)</option>
+      <option value="lay.vrma">💫 Lay / Hurt (Лежать / Урон)</option>
+      <option value="sit.vrma">🪑 Sit (Сидеть)</option>
+      <option value="wave_fast.vrma">👋 Wave (Приветствие рукой)</option>
+      <option value="joyful_jump.vrma">🌟 Joyful Jump (Прыжок радости)</option>
+      <option value="talking.vrma">💬 Talking (Разговор с жестами)</option>
+    </select>
+
     <div class="controls-grid">
       <button class="btn-action" id="btn-smile">😊 Улыбка</button>
       <button class="btn-action" id="btn-joy">🎉 Радость</button>
-      <button class="btn-action" id="btn-talk">🗣️ Говорить (Лип-синк)</button>
-      <button class="btn-action" id="btn-reset">🔄 Сброс</button>
+      <button class="btn-action" id="btn-talk">🗣️ Лип-синк</button>
+      <button class="btn-action" id="btn-reset">🔄 Сброс камеры</button>
     </div>
   </div>
 
@@ -141,12 +170,13 @@
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+    import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 
     const container = document.getElementById('canvas-container');
     const loadingElem = document.getElementById('loading');
 
     // 1. Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -154,69 +184,109 @@
 
     // 2. Camera & Scene
     const camera = new THREE.PerspectiveCamera(30.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
-    camera.position.set(0.0, 1.25, 2.2);
+    camera.position.set(0.0, 1.15, 2.8);
 
     const scene = new THREE.Scene();
 
-    // 3. Lighting
-    const light = new THREE.DirectionalLight(0xffffff, 1.2);
-    light.position.set(1.0, 2.0, 1.0).normalize();
+    // 3. Lighting (Warm anime studio lights)
+    const light = new THREE.DirectionalLight(0xffffff, 1.4);
+    light.position.set(1.0, 2.2, 1.5).normalize();
     scene.add(light);
 
-    const ambientLight = new THREE.AmbientLight(0xffe4e6, 0.85);
+    const ambientLight = new THREE.AmbientLight(0xfff1f2, 1.0);
     scene.add(ambientLight);
 
     const backLight = new THREE.DirectionalLight(0x818cf8, 0.7);
-    backLight.position.set(-1.0, 1.0, -1.0).normalize();
+    backLight.position.set(-1.2, 1.2, -1.0).normalize();
     scene.add(backLight);
 
     // 4. Controls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.screenSpacePanning = true;
-    controls.target.set(0.0, 1.1, 0.0);
+    controls.target.set(0.0, 0.95, 0.0);
     controls.update();
 
     let currentVRM = null;
+    let mixer = null;
+    let currentAction = null;
+    let currentAnimFile = 'idle_loop.vrma';
     let isTalking = false;
     let talkTimer = 0;
 
-    // 5. GLTF + VRM Loader
+    // 5. GLTF + VRM + VRMA Loader
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
+    loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
-    function loadModel(vrmUrl) {
+    async function loadModel(vrmUrl) {
       loadingElem.style.display = 'block';
+      loadingElem.innerText = '⏳ Загрузка 3D модели...';
+
       if (currentVRM) {
         scene.remove(currentVRM.scene);
         VRMUtils.deepDispose(currentVRM.scene);
         currentVRM = null;
+        mixer = null;
+        currentAction = null;
       }
 
-      loader.load(
-        vrmUrl,
-        (gltf) => {
-          const vrm = gltf.userData.vrm;
-          VRMUtils.removeUnnecessaryVertices(gltf.scene);
-          VRMUtils.removeUnnecessaryJoints(gltf.scene);
+      try {
+        const gltf = await loader.loadAsync(vrmUrl);
+        const vrm = gltf.userData.vrm;
+        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+        VRMUtils.removeUnnecessaryJoints(gltf.scene);
 
-          scene.add(vrm.scene);
-          currentVRM = vrm;
-          loadingElem.style.display = 'none';
+        scene.add(vrm.scene);
+        currentVRM = vrm;
 
-          // Rotate model to face camera
-          vrm.scene.rotation.y = Math.PI;
+        // Face forward
+        vrm.scene.rotation.y = Math.PI;
 
-          console.log('VRM Loaded successfully:', vrm);
-        },
-        (progress) => {
-          const percent = Math.round((progress.loaded / (progress.total || 15000000)) * 100);
-          loadingElem.innerText = `⏳ Загрузка 3D модели... ${percent}%`;
-        },
-        (error) => {
-          console.error('Error loading VRM:', error);
-          loadingElem.innerText = `❌ Ошибка загрузки модели`;
+        mixer = new THREE.AnimationMixer(vrm.scene);
+
+        // Load currently selected animation
+        await playVrmaAnimation(currentAnimFile);
+
+        loadingElem.style.display = 'none';
+      } catch (err) {
+        console.error('Error loading VRM:', err);
+        loadingElem.innerText = '❌ Ошибка загрузки модели';
+      }
+    }
+
+    async function playVrmaAnimation(animFile) {
+      currentAnimFile = animFile;
+      if (!currentVRM || !mixer) return;
+
+      loadingElem.style.display = 'block';
+      loadingElem.innerText = '⏳ Загрузка анимации...';
+
+      try {
+        const animGltf = await loader.loadAsync('animations/' + animFile);
+        const vrma = animGltf.userData.vrmAnimations?.[0];
+        if (vrma) {
+          const clip = createVRMAnimationClip(vrma, currentVRM);
+          const nextAction = mixer.clipAction(clip);
+          nextAction.reset();
+
+          if (animFile === 'lay.vrma') {
+            nextAction.setLoop(THREE.LoopOnce);
+            nextAction.clampWhenFinished = true;
+          } else {
+            nextAction.setLoop(THREE.LoopRepeat);
+          }
+
+          if (currentAction) {
+            currentAction.crossFadeTo(nextAction, 0.35, true);
+          }
+          nextAction.play();
+          currentAction = nextAction;
         }
-      );
+        loadingElem.style.display = 'none';
+      } catch (e) {
+        console.error('Error playing animation:', e);
+        loadingElem.innerText = '❌ Ошибка анимации';
+      }
     }
 
     // Load initial model (Sendagaya Shino)
@@ -224,6 +294,10 @@
 
     document.getElementById('model-select').addEventListener('change', (e) => {
       loadModel(e.target.value);
+    });
+
+    document.getElementById('anim-select').addEventListener('change', (e) => {
+      playVrmaAnimation(e.target.value);
     });
 
     // Expression buttons
@@ -245,13 +319,16 @@
 
     document.getElementById('btn-talk').addEventListener('click', () => {
       isTalking = !isTalking;
-      document.getElementById('btn-talk').innerText = isTalking ? '⏹️ Стоп' : '🗣️ Говорить (Лип-синк)';
+      document.getElementById('btn-talk').innerText = isTalking ? '⏹️ Стоп' : '🗣️ Лип-синк';
     });
 
     document.getElementById('btn-reset').addEventListener('click', () => {
+      camera.position.set(0.0, 1.15, 2.8);
+      controls.target.set(0.0, 0.95, 0.0);
+      controls.update();
       if (!currentVRM?.expressionManager) return;
       isTalking = false;
-      document.getElementById('btn-talk').innerText = '🗣️ Говорить (Лип-синк)';
+      document.getElementById('btn-talk').innerText = '🗣️ Лип-синк';
       currentVRM.expressionManager.setValue('aa', 0);
       currentVRM.expressionManager.setValue('ih', 0);
       currentVRM.expressionManager.setValue('ou', 0);
@@ -268,6 +345,10 @@
       const delta = clock.getDelta();
       const time = clock.getElapsedTime();
 
+      if (mixer) {
+        mixer.update(delta);
+      }
+
       if (currentVRM) {
         currentVRM.update(delta);
 
@@ -282,17 +363,11 @@
 
         // Lip-sync speech oscillation
         if (isTalking) {
-          talkTimer += delta * 12.0;
+          talkTimer += delta * 14.0;
           const openA = (Math.sin(talkTimer) + 1.0) * 0.45;
-          const openO = (Math.cos(talkTimer * 0.8) + 1.0) * 0.35;
+          const openO = (Math.cos(talkTimer * 0.7) + 1.0) * 0.35;
           currentVRM.expressionManager?.setValue('aa', openA);
           currentVRM.expressionManager?.setValue('oh', openO);
-        }
-
-        // Gentle breathing (Spine & Chest)
-        const spine = currentVRM.humanoid?.getNormalizedBoneNode('spine');
-        if (spine) {
-          spine.rotation.x = Math.sin(time * 1.8) * 0.025;
         }
       }
 
