@@ -422,7 +422,7 @@ class LiveAnimatedRobo(QWidget):
         # Silky smooth 50 FPS timer (20ms)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.advance)
-        self.timer.start(40)
+        self.timer.start(16)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -449,7 +449,7 @@ class LiveAnimatedRobo(QWidget):
     def advance(self):
         if not self.isVisible():
             return
-        dt = 0.040  # 25 FPS
+        dt = 0.016  # 60 FPS
         self.anim_tick += 1
 
         if self.mode in ["eating", "nom"]:

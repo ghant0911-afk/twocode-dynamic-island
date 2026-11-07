@@ -120,7 +120,7 @@ class DesktopRoboPet(QWidget):
         # Animation Ticks & Kinematics
         self.anim_tick = 0
         self.walk_phase = 0.0
-        self.walk_speed = 2.0
+        self.walk_speed = 2.2
         self.blink_tick = 0
         self.is_blinking = False
         self.dangle_phase = 0.0
@@ -142,9 +142,9 @@ class DesktopRoboPet(QWidget):
         self.ai_timer.setInterval(4000)
         self.ai_timer.timeout.connect(self._ai_decide_next_action)
 
-        # Optimized 30 FPS Physics & Render Loop (33ms) - buttery smooth and 0% CPU
+        # Silky smooth 60 FPS Physics & Render Loop (16ms)
         self.loop_timer = QTimer(self)
-        self.loop_timer.setInterval(33)
+        self.loop_timer.setInterval(16)
         self.loop_timer.timeout.connect(self._physics_step)
 
         # Spawn at bottom center on primary screen
@@ -210,7 +210,7 @@ class DesktopRoboPet(QWidget):
         super().setVisible(visible)
         if visible:
             if not self.loop_timer.isActive():
-                self.loop_timer.start(33)
+                self.loop_timer.start(16)
             if not self.ai_timer.isActive():
                 self.ai_timer.start(4000)
         else:
@@ -255,7 +255,7 @@ class DesktopRoboPet(QWidget):
             return
 
         elif self.state == self.STATE_WALK:
-            self.walk_phase += 0.20
+            self.walk_phase += 0.22
             step = int(self.walk_speed * self.facing_direction)
             new_x = self.x() + step
 
