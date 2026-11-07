@@ -29,6 +29,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.parse
 try:
     from desktop_pet import DesktopRoboPet
+    from deepseek_brain import DeepSeekBrain
 except Exception:
     DesktopRoboPet = None
 import winsound
@@ -221,6 +222,13 @@ class IslandAPIHandler(BaseHTTPRequestHandler):
         elif parsed.path in ['/collapse', '/api/collapse']:
             global_signals.collapse_requested.emit()
             self._send_json(200, {"status": "ok", "action": "collapsed"})
+        elif parsed.path == '/api/chat':
+            query = data.get("query", "")
+            try:
+                ans = DeepSeekBrain.get().ask(query)
+            except Exception as e:
+                ans = str(e)
+            self._send_json(200, {"status": "ok", "response": ans})
         elif parsed.path == '/api/pet/spawn':
             global_signals.pet_spawn_requested.emit()
             self._send_json(200, {"status": "ok", "action": "spawned"})
@@ -1604,6 +1612,51 @@ class AmbientRoboTabWidget(QWidget):
         pet_row.addWidget(self.pet_btn)
         layout.addLayout(pet_row)
 
+        # DeepSeek AI Chat & Task Execution Row
+        chat_box = QHBoxLayout()
+        chat_box.setSpacing(6)
+
+        self.chat_input = QLineEdit()
+        self.chat_input.setPlaceholderText("💬 Спроси DeepSeek или дай задачу...")
+        self.chat_input.setFixedHeight(28)
+        self.chat_input.setStyleSheet("""
+            QLineEdit {
+                background: #14151B;
+                color: #FFFFFF;
+                border: 1px solid rgba(56, 189, 248, 0.3);
+                border-radius: 7px;
+                padding: 4px 10px;
+                font-size: 10px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #38BDF8;
+                background: #1A1D24;
+            }
+        """)
+        self.chat_input.returnPressed.connect(self.on_chat_submitted)
+        chat_box.addWidget(self.chat_input)
+
+        self.chat_btn = QPushButton("▶")
+        self.chat_btn.setFixedSize(28, 28)
+        self.chat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chat_btn.setStyleSheet("""
+            QPushButton {
+                background: #38BDF8;
+                color: #000000;
+                border-radius: 7px;
+                font-weight: 800;
+                font-size: 11px;
+                border: none;
+            }
+            QPushButton:hover {
+                background: #7DD3FC;
+            }
+        """)
+        self.chat_btn.clicked.connect(self.on_chat_submitted)
+        chat_box.addWidget(self.chat_btn)
+
+        layout.addLayout(chat_box)
+
         # Coucou-style Agent Approval Banner
         self.ask_banner = QFrame()
         self.ask_banner.setStyleSheet("""
@@ -1831,15 +1884,39 @@ class AmbientRoboTabWidget(QWidget):
                 }
             """)
 
+    def on_chat_submitted(self):
+        query = self.chat_input.text().strip()
+        if not query:
+            return
+        self.chat_input.clear()
+        self.process_ai_query(query)
+
+    def process_ai_query(self, query: str):
+        self.status_lbl.setText("🧠 DeepSeek думает...")
+        self.robo.set_mode("thinking")
+        self.speech_bubble.setText(f"«Думаю: {query}...»")
+
+        def _worker():
+            try:
+                answer = DeepSeekBrain.get().ask(query)
+            except Exception as e:
+                answer = f"Ошибка DeepSeek: {e}"
+
+            QTimer.singleShot(0, lambda: self._apply_ai_response(answer))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _apply_ai_response(self, answer: str):
+        self.status_lbl.setText("Робот TwoCode: Ответил")
+        self.robo.set_mode("happy", duration_ms=4500)
+        self.speech_bubble.setText(f"«{answer}»")
+        if HAS_VOICE_ENGINE:
+            VoiceEngine.get().speak(answer)
+
     def test_speech(self):
-        phrases = [
-            "Привет! Все системы TwoCode Dynamic Island работают в штатном режиме!",
-            "Я рядом и готова помочь в любой момент!",
-            "Отличная музыка и отличный темп работы!"
-        ]
-        phrase = random.choice(phrases)
+        phrase = "Привет! Я Бая, живой голос твоего маскота в красном худи! Работаю на полной мощности с DeepSeek."
         self.speech_bubble.setText(f"«{phrase}»")
-        self.robo.set_mode("happy", duration_ms=3000)
+        self.robo.set_mode("happy", duration_ms=4000)
         if HAS_VOICE_ENGINE:
             VoiceEngine.get().speak(phrase)
 
@@ -1850,8 +1927,7 @@ class AmbientRoboTabWidget(QWidget):
             VoiceEngine.get().speak("Слушаю вас! Чем могу помочь?")
 
     def on_voice_phrase(self, text):
-        self.speech_bubble.setText(f"«Вы сказали: {text}»")
-        self.robo.set_mode("thinking", duration_ms=2500)
+        self.process_ai_query(text)
 
     def on_speaking_state(self, is_speaking):
         if is_speaking:
@@ -2096,6 +2172,30 @@ class SettingsTabWidget(QWidget):
         s_row.addWidget(self.sound_btn)
         layout.addLayout(s_row)
 
+        # DeepSeek API Key
+        ds_row = QHBoxLayout()
+        ds_lbl = QLabel("DeepSeek API ключ (необязательно):")
+        ds_lbl.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 600;")
+        ds_row.addWidget(ds_lbl)
+        ds_row.addStretch()
+
+        self.ds_key_input = QLineEdit()
+        self.ds_key_input.setPlaceholderText("sk-...")
+        self.ds_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ds_key_input.setFixedSize(160, 24)
+        self.ds_key_input.setStyleSheet("background: #18191E; color: #FFFFFF; font-size: 9px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.2); padding: 2px 6px;")
+        if os.path.exists(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                    c = json.load(f)
+                    if c.get("deepseek_api_key"):
+                        self.ds_key_input.setText(c["deepseek_api_key"])
+            except Exception:
+                pass
+        self.ds_key_input.textChanged.connect(self.on_deepseek_key_changed)
+        ds_row.addWidget(self.ds_key_input)
+        layout.addLayout(ds_row)
+
         # GitHub Repo
         gh_row = QHBoxLayout()
         gh_lbl = QLabel("GitHub репозиторий проекта:")
@@ -2127,6 +2227,12 @@ class SettingsTabWidget(QWidget):
         layout.addLayout(r_row)
 
         layout.addStretch()
+
+    def on_deepseek_key_changed(self, text):
+        try:
+            DeepSeekBrain.get().save_api_key(text)
+        except Exception:
+            pass
 
     def toggle_topmost(self):
         is_on = "ВКЛ" in self.top_btn.text()

@@ -549,11 +549,11 @@ class DesktopRoboPet(QWidget):
         p.restore()
 
         # -------------------------------------------------------------
-        # 3. Torso & Hoodie / Кофта
+        # 3. Torso & Hoodie / Кофта (Стильное ярко-красное худи)
         # -------------------------------------------------------------
-        hoodie_color = QColor('#3E4153')  # Techwear slate hoodie
-        hoodie_shadow = QColor('#2E303E')
-        hoodie_pocket = QColor('#333644')
+        hoodie_color = QColor('#E11D48')   # Vibrant Techwear Crimson Red
+        hoodie_shadow = QColor('#9F1239')  # Deep rich red shadow
+        hoodie_pocket = QColor('#BE123C')  # Rich ruby pocket
 
         # Left Arm (Behind torso)
         p.save()
@@ -569,24 +569,25 @@ class DesktopRoboPet(QWidget):
 
         # Main Hoodie Torso
         hoodie_grad = QLinearGradient(0, -2 * s, 0, 28 * s)
-        hoodie_grad.setColorAt(0.0, QColor('#474B5F'))
-        hoodie_grad.setColorAt(1.0, QColor('#333645'))
+        hoodie_grad.setColorAt(0.0, QColor('#F43F5E'))  # Bright scarlet highlight
+        hoodie_grad.setColorAt(0.35, QColor('#E11D48')) # Pure rich red
+        hoodie_grad.setColorAt(1.0, QColor('#9F1239'))  # Deep shadow red
         p.setBrush(QBrush(hoodie_grad))
         p.setPen(QPen(hoodie_shadow, max(1, int(1.5 * s))))
         p.drawRoundedRect(QRectF(-18 * s, -2 * s, 36 * s, 30 * s), 10 * s, 10 * s)
 
         # Kangaroo Pocket in Front
         p.setBrush(QBrush(hoodie_pocket))
-        p.setPen(QPen(QColor('#252733'), max(1, int(1.0 * s))))
+        p.setPen(QPen(QColor('#881337'), max(1, int(1.0 * s))))
         p.drawRoundedRect(QRectF(-12 * s, 13 * s, 24 * s, 12 * s), 5 * s, 5 * s)
 
         # Hoodie Collar / Neckband
-        p.setBrush(QBrush(QColor('#252733')))
+        p.setBrush(QBrush(QColor('#881337')))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawRoundedRect(QRectF(-11 * s, -3 * s, 22 * s, 5 * s), 2.5 * s, 2.5 * s)
 
-        # Hoodie Drawstrings (swaying with kinematics)
-        p.setPen(QPen(QColor('#E2E8F0'), max(1, int(1.5 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        # Hoodie Drawstrings (pure white with physics sway)
+        p.setPen(QPen(QColor('#FFFFFF'), max(1, int(1.6 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(int(-5 * s), int(0 * s), int((-6 + string_sway * 0.3) * s), int(12 * s))
         p.drawLine(int(5 * s), int(0 * s), int((4 + string_sway * 0.3) * s), int(11 * s))
 
