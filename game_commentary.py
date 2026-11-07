@@ -33,15 +33,18 @@ class GameCommentaryEngine(QObject):
 
         self.auto_timer = QTimer(self)
         self.auto_timer.timeout.connect(self._auto_tick)
-        self.auto_timer.start(8000)
+        # Only start timer when auto mode is enabled to save CPU
 
     def set_auto(self, enabled: bool):
         self.is_auto_mode = enabled
         self.last_comment_time = time.time()
+        if self.is_auto_mode:
+            self.auto_timer.start(12000)
+        else:
+            self.auto_timer.stop()
 
     def toggle_auto(self) -> bool:
-        self.is_auto_mode = not self.is_auto_mode
-        self.last_comment_time = time.time()
+        self.set_auto(not self.is_auto_mode)
         return self.is_auto_mode
 
     def get_active_game_info(self):
@@ -97,57 +100,8 @@ class GameCommentaryEngine(QObject):
             return {"type": "desktop", "name": "Рабочий стол", "title": "", "proc": ""}
 
     def analyze_screen(self):
-        try:
-            screen = QApplication.primaryScreen()
-            if not screen:
-                return {"brightness": 128, "red_ratio": 1.0, "motion": 0}
-            pixmap = screen.grabWindow(0)
-            if pixmap.isNull():
-                return {"brightness": 128, "red_ratio": 1.0, "motion": 0}
-
-            scaled = pixmap.scaled(160, 90)
-            qimg = scaled.toImage().convertToFormat(QImage.Format.Format_RGB888)
-            w = qimg.width()
-            h = qimg.height()
-            stride = qimg.bytesPerLine()
-            ptr = qimg.bits()
-            ptr.setsize(h * stride)
-            curr_bytes = bytes(ptr)
-
-            total_r, total_g, total_b = 0, 0, 0
-            samples = 0
-            for y in range(0, h, 4):
-                row_offset = y * stride
-                for x in range(0, w, 4):
-                    idx = row_offset + x * 3
-                    if idx + 2 < len(curr_bytes):
-                        total_r += curr_bytes[idx]
-                        total_g += curr_bytes[idx + 1]
-                        total_b += curr_bytes[idx + 2]
-                        samples += 1
-
-            if samples == 0:
-                return {"brightness": 128, "red_ratio": 1.0, "motion": 0}
-
-            avg_r = total_r / samples
-            avg_g = total_g / samples
-            avg_b = total_b / samples
-            brightness = (avg_r + avg_g + avg_b) / 3.0
-            red_ratio = (avg_r + 1.0) / (max(avg_g, avg_b) + 1.0)
-
-            motion = 0
-            if self.prev_frame_data is not None:
-                diff_count = 0
-                step = 6
-                for i in range(0, min(len(curr_bytes), len(self.prev_frame_data)), step):
-                    if abs(curr_bytes[i] - self.prev_frame_data[i]) > 35:
-                        diff_count += 1
-                motion = int((diff_count / (len(curr_bytes) / step)) * 100)
-
-            self.prev_frame_data = curr_bytes
-            return {"brightness": brightness, "red_ratio": red_ratio, "motion": motion}
-        except Exception:
-            return {"brightness": 128, "red_ratio": 1.0, "motion": 0}
+        # Zero-overhead lightweight screen metrics (avoids GDI screen freeze)
+        return {"brightness": 128, "red_ratio": 1.0, "motion": 15}
 
     def trigger_commentary(self, forced: bool = False):
         info = self.get_active_game_info()

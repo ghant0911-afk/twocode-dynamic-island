@@ -10,6 +10,9 @@ TwoCode Dynamic Island Pro - Production Master Edition
 
 import sys
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 if sys.stdout is None:
     sys.stdout = open(os.devnull, "w")
@@ -346,9 +349,10 @@ class EqualizerBars(QWidget):
         self.timer.start(50)
 
     def advance(self):
-        if self.is_active:
-            self.tick += 1
-            self.update()
+        if not self.isVisible() or not self.is_active:
+            return
+        self.tick += 1
+        self.update()
 
     def set_active(self, active=True):
         self.is_active = active
@@ -418,7 +422,7 @@ class LiveAnimatedRobo(QWidget):
         # Silky smooth 50 FPS timer (20ms)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.advance)
-        self.timer.start(20)
+        self.timer.start(40)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -443,7 +447,9 @@ class LiveAnimatedRobo(QWidget):
             self.update()
 
     def advance(self):
-        dt = 0.020  # 50 FPS
+        if not self.isVisible():
+            return
+        dt = 0.040  # 25 FPS
         self.anim_tick += 1
 
         if self.mode in ["eating", "nom"]:
@@ -2688,8 +2694,8 @@ class TwoCodeIsland(QWidget):
     def leaveEvent(self, event):
         if not self.is_pinned and not self.is_bt_showing and not self.dragging:
             cursor_pos = QCursor.pos()
-            if not self.geometry().contains(cursor_pos):
-                self.collapse_timer.start(700)
+            if not self.frameGeometry().contains(cursor_pos):
+                self.collapse_timer.start(500)
             else:
                 self.collapse_timer.stop()
         super().leaveEvent(event)
@@ -2697,9 +2703,9 @@ class TwoCodeIsland(QWidget):
     def _check_hover_watchdog(self):
         if self.is_expanded and not self.is_pinned and not self.is_bt_showing and not self.dragging:
             cursor_pos = QCursor.pos()
-            if not self.geometry().contains(cursor_pos):
+            if not self.frameGeometry().contains(cursor_pos):
                 if not self.collapse_timer.isActive():
-                    self.collapse_timer.start(650)
+                    self.collapse_timer.start(500)
             else:
                 if self.collapse_timer.isActive():
                     self.collapse_timer.stop()
@@ -2707,7 +2713,7 @@ class TwoCodeIsland(QWidget):
     def auto_collapse(self):
         if not self.is_pinned and not self.is_bt_showing and not self.dragging:
             cursor_pos = QCursor.pos()
-            if not self.geometry().contains(cursor_pos):
+            if not self.frameGeometry().contains(cursor_pos):
                 self.collapse()
             else:
                 self.collapse_timer.stop()
@@ -2826,8 +2832,8 @@ class TwoCodeIsland(QWidget):
             self.hover_watchdog.stop()
         else:
             cursor_pos = QCursor.pos()
-            if not self.geometry().contains(cursor_pos):
-                self.collapse_timer.start(650)
+            if not self.frameGeometry().contains(cursor_pos):
+                self.collapse_timer.start(500)
             else:
                 self.hover_watchdog.start(250)
 

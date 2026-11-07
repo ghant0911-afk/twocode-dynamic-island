@@ -7,6 +7,8 @@ Features:
 """
 
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 import re
 import sys
 import time
@@ -79,6 +81,7 @@ class VoiceEngine:
     def _init_silero(self):
         try:
             import torch
+            torch.set_num_threads(1)
             self.device = torch.device('cpu')
             self.silero_model, _ = torch.hub.load(
                 repo_or_dir='snakers4/silero-models',
@@ -110,25 +113,21 @@ class VoiceEngine:
 
         def _play_file(filepath):
             try:
-                import soundfile as sf
-                import sounddevice as sd
-                data, fs = sf.read(filepath)
+                import winsound
                 self.is_speaking = True
                 voice_bridge.speaking_state_changed.emit(True)
-                sd.play(data, fs)
-                sd.wait()
+                winsound.PlaySound(filepath, winsound.SND_FILENAME)
             except Exception:
-                if HAS_PYGAME:
-                    try:
-                        self._init_mixer()
-                        pygame.mixer.music.load(filepath)
-                        pygame.mixer.music.play()
-                        self.is_speaking = True
-                        voice_bridge.speaking_state_changed.emit(True)
-                        while pygame.mixer.music.get_busy():
-                            time.sleep(0.04)
-                    except Exception:
-                        pass
+                try:
+                    import soundfile as sf
+                    import sounddevice as sd
+                    data, fs = sf.read(filepath)
+                    self.is_speaking = True
+                    voice_bridge.speaking_state_changed.emit(True)
+                    sd.play(data, fs)
+                    sd.wait()
+                except Exception:
+                    pass
             finally:
                 self.is_speaking = False
                 voice_bridge.speaking_state_changed.emit(False)
@@ -193,12 +192,15 @@ class VoiceInputEngine:
         self.recognizer = sr.Recognizer() if HAS_AUDIO_INPUT else None
         self._thread = None
         self._stop_event = threading.Event()
-        if HAS_AUDIO_INPUT:
-            self.start()
+        # Do NOT start audio stream at startup to prevent PortAudio WASAPI resource holding
 
     def set_enabled(self, enabled: bool):
         self.enabled = enabled
         voice_bridge.mic_state_changed.emit(self.enabled)
+        if self.enabled:
+            self.start()
+        else:
+            self.stop()
 
     def toggle(self):
         self.set_enabled(not self.enabled)
@@ -217,62 +219,55 @@ class VoiceInputEngine:
         self._stop_event.set()
 
     def _listen_loop(self):
-        if not HAS_AUDIO_INPUT:
+        if not HAS_AUDIO_INPUT or not self.enabled:
             return
         ring_buffer = []
         is_speaking_phrase = False
         silence_chunks = 0
         max_silence_chunks = 8
 
-        while not self._stop_event.is_set():
-            try:
-                with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype='int16', blocksize=self.block_size) as stream:
-                    while not self._stop_event.is_set():
-                        if not self.enabled:
-                            time.sleep(0.15)
-                            ring_buffer.clear()
-                            is_speaking_phrase = False
-                            continue
+        try:
+            with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype='int16', blocksize=self.block_size) as stream:
+                while not self._stop_event.is_set() and self.enabled:
+                    now = time.time()
+                    if VoiceEngine.get().is_speaking or now < self.ignore_until:
+                        time.sleep(0.08)
+                        ring_buffer.clear()
+                        is_speaking_phrase = False
+                        continue
 
-                        now = time.time()
-                        if VoiceEngine.get().is_speaking or now < self.ignore_until:
-                            time.sleep(0.08)
-                            ring_buffer.clear()
-                            is_speaking_phrase = False
-                            continue
+                    data, _ = stream.read(self.block_size)
+                    audio_chunk = np.frombuffer(data, dtype=np.int16)
+                    amplitude = np.mean(np.abs(audio_chunk))
 
-                        data, _ = stream.read(self.block_size)
-                        audio_chunk = np.frombuffer(data, dtype=np.int16)
-                        amplitude = np.mean(np.abs(audio_chunk))
+                    if not is_speaking_phrase and amplitude < self.energy_threshold:
+                        self.energy_threshold = max(450, int(self.energy_threshold * 0.98 + (amplitude * 2.2) * 0.02))
 
-                        if not is_speaking_phrase and amplitude < self.energy_threshold:
-                            self.energy_threshold = max(450, int(self.energy_threshold * 0.98 + (amplitude * 2.2) * 0.02))
-
-                        if amplitude > self.energy_threshold * 1.35:
-                            if not is_speaking_phrase:
-                                is_speaking_phrase = True
-                                silence_chunks = 0
-                                ring_buffer = ring_buffer[-2:] if len(ring_buffer) >= 2 else []
-                            ring_buffer.append(audio_chunk)
+                    if amplitude > self.energy_threshold * 1.35:
+                        if not is_speaking_phrase:
+                            is_speaking_phrase = True
                             silence_chunks = 0
-                        elif is_speaking_phrase:
-                            ring_buffer.append(audio_chunk)
-                            silence_chunks += 1
-                            if silence_chunks >= max_silence_chunks:
-                                is_speaking_phrase = False
-                                silence_chunks = 0
-                                if len(ring_buffer) >= 5:
-                                    audio_frames = np.concatenate(ring_buffer)
-                                    ring_buffer.clear()
-                                    self._dispatch_recognition(audio_frames)
-                                else:
-                                    ring_buffer.clear()
-                        else:
-                            ring_buffer.append(audio_chunk)
-                            if len(ring_buffer) > 3:
-                                ring_buffer.pop(0)
-            except Exception:
-                time.sleep(1.0)
+                            ring_buffer = ring_buffer[-2:] if len(ring_buffer) >= 2 else []
+                        ring_buffer.append(audio_chunk)
+                        silence_chunks = 0
+                    elif is_speaking_phrase:
+                        ring_buffer.append(audio_chunk)
+                        silence_chunks += 1
+                        if silence_chunks >= max_silence_chunks:
+                            is_speaking_phrase = False
+                            silence_chunks = 0
+                            if len(ring_buffer) >= 5:
+                                audio_frames = np.concatenate(ring_buffer)
+                                ring_buffer.clear()
+                                self._dispatch_recognition(audio_frames)
+                            else:
+                                ring_buffer.clear()
+                    else:
+                        ring_buffer.append(audio_chunk)
+                        if len(ring_buffer) > 3:
+                            ring_buffer.pop(0)
+        except Exception:
+            pass
 
     def _dispatch_recognition(self, audio_frames):
         def _worker():
