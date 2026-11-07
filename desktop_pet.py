@@ -139,6 +139,7 @@ class DesktopRoboPet(QWidget):
         self.setMouseTracking(True)
 
         self.pet_size = size
+        self.character = "shino"   # "shino" (Sendagaya Shino / Astra VRM) or "robo"
         self.setFixedSize(self.pet_size, self.pet_size + 40)
 
         # Mascot Appearance & Wardrobe
@@ -146,7 +147,6 @@ class DesktopRoboPet(QWidget):
         self.forced_music = False
         self.state = self.STATE_IDLE
         self.facing_direction = 1  # 1 = Right, -1 = Left
-        self.character = "shino"   # "shino" (Sendagaya Shino / Astra VRM) or "robo"
         self.is_speaking = False
         self.speech_tick = 0.0
         # Real 3D VRM Engine View (for Sendagaya Shino / Astra 3D)

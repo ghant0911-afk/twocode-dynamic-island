@@ -56,8 +56,8 @@
 
     // 2. Camera & Scene (Framed to show Sendagaya Shino head-to-toes)
     const camera = new THREE.PerspectiveCamera(32.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
-    // Sendagaya Shino height is ~1.5m. Center camera at 0.75m, distance 2.75m
-    camera.position.set(0.0, 0.78, 2.75);
+    // Sendagaya Shino height is ~1.5m. Center camera at 0.76m, distance 2.75m
+    camera.position.set(0.0, 0.76, 2.75);
     camera.lookAt(0.0, 0.75, 0.0);
 
     const scene = new THREE.Scene();
@@ -88,14 +88,14 @@
     let talkTimer = 0;
     let targetRotationY = Math.PI;
 
+    // Best in-place, balanced dance choreographies that stay centered in frame
     const danceNames = [
       'dance_1',
       'dance_2',
       'hiphop',
       'twist_dance',
       'silly_dance',
-      'samba',
-      'breakdance'
+      'celebrate'
     ];
 
     const animConfig = {
@@ -112,9 +112,7 @@
       dance_2: 'animations/dance_2.vrma',
       hiphop: 'animations/hiphop.vrma',
       twist_dance: 'animations/twist_dance.vrma',
-      silly_dance: 'animations/silly_dance.vrma',
-      samba: 'animations/samba.vrma',
-      breakdance: 'animations/breakdance.vrma'
+      silly_dance: 'animations/silly_dance.vrma'
     };
 
     // Smooth Look-at Target
@@ -128,6 +126,51 @@
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
     loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+
+    /**
+     * Sanitizes and normalizes animation tracks to ensure the character
+     * stays strictly in-place at natural standing/sitting height and NEVER
+     * drifts off-screen or falls below the floor.
+     */
+    function sanitizeClip(clip, vrm, animKey) {
+      const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
+      const restY = hips ? hips.position.y : 0.893;
+
+      clip.tracks.forEach(track => {
+        if (track.name.endsWith('.position')) {
+          const vals = track.values;
+          const count = vals.length / 3;
+          if (count === 0) return;
+
+          let sumX = 0, sumY = 0, sumZ = 0;
+          for (let i = 0; i < count; i++) {
+            sumX += vals[i * 3];
+            sumY += vals[i * 3 + 1];
+            sumZ += vals[i * 3 + 2];
+          }
+          const avgX = sumX / count;
+          const avgY = sumY / count;
+          const avgZ = sumZ / count;
+
+          const isSit = animKey === 'sit';
+          const isHurt = animKey === 'hurt';
+          let targetY = restY;
+          if (isSit) targetY = restY * 0.62;
+          if (isHurt) targetY = restY * 0.32;
+
+          for (let i = 0; i < count; i++) {
+            // Center X horizontally with damped natural sway (±0.15m max)
+            vals[i * 3 + 0] = (vals[i * 3 + 0] - avgX) * 0.45;
+            // Center Y at natural hips height, preserving vertical bounce
+            const newY = targetY + (vals[i * 3 + 1] - avgY);
+            vals[i * 3 + 1] = Math.max(0.28, Math.min(1.4, newY));
+            // Center Z depth
+            vals[i * 3 + 2] = (vals[i * 3 + 2] - avgZ) * 0.35;
+          }
+        }
+      });
+      return clip;
+    }
 
     async function init() {
       try {
@@ -154,15 +197,16 @@
         window.mixer = mixer;
         window.actions = actions;
 
-        // Preload key animations asynchronously
+        // Preload key animations asynchronously with strict root motion sanitization
         console.log('[VRMPet] Preloading skeletal animations...');
         for (const [key, path] of Object.entries(animConfig)) {
           try {
             const animGltf = await loader.loadAsync(path);
             const vrma = animGltf.userData.vrmAnimations?.[0];
             if (vrma) {
-              const clip = createVRMAnimationClip(vrma, vrm);
-              const action = mixer.clipAction(clip);
+              const rawClip = createVRMAnimationClip(vrma, vrm);
+              const sanitizedClip = sanitizeClip(rawClip, vrm, key);
+              const action = mixer.clipAction(sanitizedClip);
               if (key === 'hurt' || key === 'wave' || key === 'celebrate') {
                 action.setLoop(THREE.LoopOnce);
                 action.clampWhenFinished = true;
@@ -187,7 +231,7 @@
       }
     }
 
-    function playAction(name, fadeDuration = 0.35) {
+    function playAction(name, fadeDuration = 0.3) {
       if (!mixer) return;
       const nextAction = actions[name];
       if (!nextAction) {
@@ -225,9 +269,9 @@
       // Update Facing Angle
       if (facingDirection !== undefined) {
         if (facingDirection < 0) {
-          targetRotationY = Math.PI - 0.38; // turned slightly left
+          targetRotationY = Math.PI - 0.35; // turned slightly left
         } else if (facingDirection > 0) {
-          targetRotationY = Math.PI + 0.38; // turned slightly right
+          targetRotationY = Math.PI + 0.35; // turned slightly right
         } else {
           targetRotationY = Math.PI;
         }
@@ -240,7 +284,7 @@
         // Cycle dance styles
         const chosenDance = danceNames[currentDanceIndex % danceNames.length];
         currentDanceIndex++;
-        playAction(chosenDance, 0.4);
+        playAction(chosenDance, 0.35);
       } else if (currentState === 'picked_up' || currentState === 'falling') {
         currentVRM.expressionManager.setValue('surprised', 1.0);
         playAction('picked_up', 0.2);
@@ -262,13 +306,13 @@
       } else {
         // Idle
         currentVRM.expressionManager.setValue('relaxed', 0.3);
-        playAction('idle', 0.4);
+        playAction('idle', 0.35);
       }
     };
 
     window.setFacing = (facing) => {
-      if (facing < 0) targetRotationY = Math.PI - 0.38;
-      else if (facing > 0) targetRotationY = Math.PI + 0.38;
+      if (facing < 0) targetRotationY = Math.PI - 0.35;
+      else if (facing > 0) targetRotationY = Math.PI + 0.35;
       else targetRotationY = Math.PI;
     };
 
@@ -291,8 +335,8 @@
 
     window.setLookAt = (screenNormX, screenNormY) => {
       // Norm coords: -1.0 to 1.0
-      desiredLookAt.x = screenNormX * 2.5;
-      desiredLookAt.y = 1.35 - screenNormY * 2.0;
+      desiredLookAt.x = screenNormX * 2.2;
+      desiredLookAt.y = 1.35 - screenNormY * 1.8;
     };
 
     window.nextDance = () => {
@@ -324,8 +368,22 @@
       if (currentVRM) {
         currentVRM.update(delta);
 
+        // Hardware safety guard: ensure hips position never drops below ground or drifts
+        const hips = currentVRM.humanoid?.getNormalizedBoneNode('hips');
+        if (hips) {
+          if (hips.position.y < 0.25) {
+            hips.position.y = 0.893;
+          }
+          if (Math.abs(hips.position.x) > 0.45) {
+            hips.position.x = Math.sign(hips.position.x) * 0.45;
+          }
+          if (Math.abs(hips.position.z) > 0.45) {
+            hips.position.z = Math.sign(hips.position.z) * 0.45;
+          }
+        }
+
         // Smoothly interpolate rotation facing
-        currentVRM.scene.rotation.y += (targetRotationY - currentVRM.scene.rotation.y) * 0.1;
+        currentVRM.scene.rotation.y += (targetRotationY - currentVRM.scene.rotation.y) * 0.12;
 
         // Smoothly interpolate lookAt target
         lookAtTarget.position.lerp(desiredLookAt, 0.08);
