@@ -626,10 +626,10 @@ class DesktopRoboPet(QWidget):
         act_wave.triggered.connect(self.react_to_click)
         menu.addAction(act_wave)
 
-        # Drums Action (plays drums instead of dance)
-        act_drums = QAction("🥁 Играть на барабанах" if self.state != self.STATE_DANCE else "🛑 Закончить соло на барабанах", self)
-        act_drums.triggered.connect(lambda: self._set_manual_state(self.STATE_DANCE if self.state != self.STATE_DANCE else self.STATE_IDLE))
-        menu.addAction(act_drums)
+        # Music Groove Action
+        act_dance = QAction("🎵 Качать под музыку (Anime Groove)" if self.state != self.STATE_DANCE else "🛑 Остановить танец", self)
+        act_dance.triggered.connect(lambda: self._set_manual_state(self.STATE_DANCE if self.state != self.STATE_DANCE else self.STATE_IDLE))
+        menu.addAction(act_dance)
 
         # Sit Action
         act_sit = QAction("🪑 Сесть отдохнуть", self)
