@@ -65,6 +65,7 @@
     window.renderer = renderer;
     window.scene = scene;
     window.camera = camera;
+    window.THREE = THREE;
 
     // 3. Studio Anime Lighting
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.45);
@@ -134,68 +135,86 @@
     let stickL = null;
     let stickR = null;
 
-    function createStick() {
+    function createStick(name) {
       const grp = new THREE.Group();
-      // Wooden shaft
+      grp.name = name || 'stick';
+
+      // Authentic 5A Hickory Wood Material (Warm natural wood with delicate lacquer finish)
+      const woodMat = new THREE.MeshStandardMaterial({
+        color: 0xedd6af,
+        roughness: 0.35,
+        metalness: 0.05
+      });
+
+      // 1. Main Tapered Shaft: 32cm from fulcrum (radius 0.0070) down to neck (radius 0.0048)
       const shaft = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.0055, 0.0075, 0.30, 16),
-        new THREE.MeshStandardMaterial({ color: 0xf3cf98, roughness: 0.35 })
+        new THREE.CylinderGeometry(0.0048, 0.0070, 0.32, 16),
+        woodMat
       );
-      shaft.position.y = 0.15;
+      shaft.position.y = 0.16; // spans 0 to +0.32
       grp.add(shaft);
-      
-      // Acorn tip
+
+      // 2. Acorn Tip: realistic tear-drop wooden striking bead
       const tip = new THREE.Mesh(
-        new THREE.SphereGeometry(0.007, 12, 12),
-        new THREE.MeshStandardMaterial({ color: 0xf5deb3, roughness: 0.25 })
+        new THREE.SphereGeometry(0.0062, 16, 16),
+        woodMat
       );
-      tip.position.y = 0.305;
-      tip.scale.set(1, 1.3, 1);
+      tip.position.y = 0.325;
+      tip.scale.set(1.0, 1.4, 1.0);
       grp.add(tip);
-      
-      // Grip wrap (sits inside fingers)
-      const grip = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.008, 0.008, 0.09, 16),
-        new THREE.MeshStandardMaterial({ color: 0x222226, roughness: 0.85 })
+
+      // 3. Butt Shaft: 7cm extending below the fulcrum / hand
+      const buttShaft = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.0070, 0.0072, 0.07, 16),
+        woodMat
       );
-      grip.position.y = -0.01;
-      grp.add(grip);
-      
-      // Butt end
-      const butt = new THREE.Mesh(
-        new THREE.SphereGeometry(0.008, 12, 12),
-        new THREE.MeshStandardMaterial({ color: 0x333338, roughness: 0.5 })
+      buttShaft.position.y = -0.035; // spans 0 to -0.07
+      grp.add(buttShaft);
+
+      // 4. Rounded Butt Cap
+      const buttCap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.0071, 14, 14),
+        woodMat
       );
-      butt.position.y = -0.055;
-      grp.add(butt);
-      
+      buttCap.position.y = -0.07;
+      grp.add(buttCap);
+
+      // 5. Classic manufacturer brand stripe on stick body
+      const brandBand = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.00705, 0.00705, 0.012, 16),
+        new THREE.MeshBasicMaterial({ color: 0x242424 })
+      );
+      brandBand.position.y = 0.025;
+      grp.add(brandBand);
+
       return grp;
     }
 
     function attachDrumsticks(vrm) {
       if (stickL && stickL.parent) stickL.parent.remove(stickL);
       if (stickR && stickR.parent) stickR.parent.remove(stickR);
-      
-      // Attach to middle knuckle bones so sticks sit 100% inside closed fists, not at the wrist joint!
-      const leftKnuckle = vrm.humanoid?.getNormalizedBoneNode('leftMiddleProximal') || vrm.humanoid?.getNormalizedBoneNode('leftHand');
-      const rightKnuckle = vrm.humanoid?.getNormalizedBoneNode('rightMiddleProximal') || vrm.humanoid?.getNormalizedBoneNode('rightHand');
+
+      // Attach directly to Hand bones (wrist/palm rigid frame) for authentic matched grip
+      const leftHand = vrm.humanoid?.getNormalizedBoneNode('leftHand');
+      const rightHand = vrm.humanoid?.getNormalizedBoneNode('rightHand');
       const isDrumVisible = (currentState === 'dance' || currentState === 'drums' || currentState === 'drumming');
-      
-      if (leftKnuckle) {
-        stickL = createStick();
-        stickL.name = 'stickL';
-        stickL.position.set(0, 0, 0);
-        stickL.rotation.set(1.55, 0.10, 0.25);
+
+      if (leftHand) {
+        stickL = createStick('stickL');
+        stickL.position.set(0.040, -0.012, 0.005);
+        // Calibrated matched grip angles matching reference pro drummer
+        stickL.rotation.set(-1.334, 0.139, -0.176);
         stickL.visible = isDrumVisible;
-        leftKnuckle.add(stickL);
+        leftHand.add(stickL);
       }
-      if (rightKnuckle) {
-        stickR = createStick();
-        stickR.name = 'stickR';
-        stickR.position.set(0, 0, 0);
-        stickR.rotation.set(1.55, 0.10, -0.25);
+
+      if (rightHand) {
+        stickR = createStick('stickR');
+        stickR.position.set(-0.040, -0.012, 0.005);
+        // Calibrated matched grip angles matching reference pro drummer
+        stickR.rotation.set(0.126, -0.083, -1.168);
         stickR.visible = isDrumVisible;
-        rightKnuckle.add(stickR);
+        rightHand.add(stickR);
       }
     }
 

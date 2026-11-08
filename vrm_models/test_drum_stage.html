@@ -78,16 +78,51 @@
     seatGroup.position.set(0, 0, -0.05);
     scene.add(seatGroup);
 
-    // Drumstick factory
-    function createStick() {
-      const stick = new THREE.Group();
-      const mesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.007, 0.012, 0.42, 16),
-        new THREE.MeshStandardMaterial({ color: 0xe0c8a0, roughness: 0.4 })
+    // Authentic 5A Hickory Drumstick factory
+    function createStick(name) {
+      const grp = new THREE.Group();
+      grp.name = name || 'stick';
+      const woodMat = new THREE.MeshStandardMaterial({
+        color: 0xedd6af,
+        roughness: 0.35,
+        metalness: 0.05
+      });
+      const shaft = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.0048, 0.0070, 0.32, 16),
+        woodMat
       );
-      mesh.position.y = 0.12;
-      stick.add(mesh);
-      return stick;
+      shaft.position.y = 0.16;
+      grp.add(shaft);
+
+      const tip = new THREE.Mesh(
+        new THREE.SphereGeometry(0.0062, 16, 16),
+        woodMat
+      );
+      tip.position.y = 0.325;
+      tip.scale.set(1.0, 1.4, 1.0);
+      grp.add(tip);
+
+      const buttShaft = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.0070, 0.0072, 0.07, 16),
+        woodMat
+      );
+      buttShaft.position.y = -0.035;
+      grp.add(buttShaft);
+
+      const buttCap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.0071, 14, 14),
+        woodMat
+      );
+      buttCap.position.y = -0.07;
+      grp.add(buttCap);
+
+      const brandBand = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.00705, 0.00705, 0.012, 16),
+        new THREE.MeshBasicMaterial({ color: 0x242424 })
+      );
+      brandBand.position.y = 0.025;
+      grp.add(brandBand);
+      return grp;
     }
 
     const vrmLoader = new GLTFLoader();
@@ -103,15 +138,15 @@
       const leftHand = vrm.humanoid.getNormalizedBoneNode('leftHand');
       const rightHand = vrm.humanoid.getNormalizedBoneNode('rightHand');
       if (leftHand) {
-        const stickL = createStick();
-        stickL.position.set(-0.070, -0.010, -0.020);
-        stickL.rotation.set(1.50, 0.20, 0.40);
+        const stickL = createStick('stickL');
+        stickL.position.set(0.040, -0.012, 0.005);
+        stickL.rotation.set(-1.334, 0.139, -0.176);
         leftHand.add(stickL);
       }
       if (rightHand) {
-        const stickR = createStick();
-        stickR.position.set(0.070, -0.010, -0.020);
-        stickR.rotation.set(1.50, -0.20, -0.40);
+        const stickR = createStick('stickR');
+        stickR.position.set(-0.040, -0.012, 0.005);
+        stickR.rotation.set(0.126, -0.083, -1.168);
         rightHand.add(stickR);
       }
 
