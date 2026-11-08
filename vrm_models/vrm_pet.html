@@ -450,8 +450,10 @@
             console.warn('Error binding anim:', key, e);
           }
         }
+        attachDrumsticks(vrm);
+        await loadDrummingAnimation(vrm);
         currentAction = null;
-        playAction(currentState || 'idle', 0.2);
+        window.setPetState(currentState || 'idle');
         console.log('[AstraVRM] Switched to model successfully:', modelFileName);
       } catch (err) {
         console.error('[AstraVRM] Model switch error:', err);
@@ -592,6 +594,7 @@
       playAction(chosen, 0.35);
       return chosen;
     };
+    window.cycleDance = window.nextDance;
 
     window.triggerWave = () => {
       window.setPetState('wave');

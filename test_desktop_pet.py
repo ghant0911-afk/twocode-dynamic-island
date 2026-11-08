@@ -1,7 +1,8 @@
 import os
 import sys
 
-os.chdir(r"C:\Users\bear_\.gemini\antigravity\scratch\twocode_island_unified")
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(APP_DIR)
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 from PyQt6.QtWidgets import QApplication
@@ -18,7 +19,7 @@ print("1. Instantiating DesktopRoboPet...")
 pet = desktop_pet.DesktopRoboPet(size=140)
 pet.show()
 assert pet.width() == 140
-assert pet.height() == 180
+assert pet.height() == int(140 * 1.45)
 print("   Instantiated cleanly!")
 
 print("2. Testing Appearance & States Rendering...")
