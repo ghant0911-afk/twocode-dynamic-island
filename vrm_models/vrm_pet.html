@@ -80,6 +80,7 @@
     let currentVRM = null;
     let mixer = null;
     const actions = {};
+    const cachedVRMAs = {};
     let currentAction = null;
     let currentState = 'idle';
     let currentDanceIndex = 0;
@@ -192,8 +193,10 @@
 
     async function init() {
       try {
-        console.log('[AstraVRM] Loading Sendagaya Shino 3D Avatar...');
-        const gltf = await loader.loadAsync('Sendagaya_Shino.vrm');
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialModel = urlParams.get('model') || 'Sendagaya_Shino.vrm';
+        console.log('[AstraVRM] Loading 3D Avatar:', initialModel);
+        const gltf = await loader.loadAsync(initialModel);
         const vrm = gltf.userData.vrm;
         VRMUtils.removeUnnecessaryVertices(gltf.scene);
         VRMUtils.removeUnnecessaryJoints(gltf.scene);
@@ -222,6 +225,7 @@
             const animGltf = await loader.loadAsync(path);
             const vrma = animGltf.userData.vrmAnimations?.[0];
             if (vrma) {
+              cachedVRMAs[key] = vrma;
               const rawClip = createVRMAnimationClip(vrma, vrm);
               const sanitizedClip = sanitizeClip(rawClip, vrm, key);
               const action = mixer.clipAction(sanitizedClip);
@@ -251,6 +255,61 @@
         console.error('[AstraVRM] Initialization error:', err);
       }
     }
+
+    window.switchVRMModel = async function(modelFileName) {
+      try {
+        console.log('[AstraVRM] Switching model to:', modelFileName);
+        if (!modelFileName) return;
+        if (currentVRM) {
+          scene.remove(currentVRM.scene);
+          VRMUtils.deepDispose(currentVRM.scene);
+          currentVRM = null;
+        }
+        const gltf = await loader.loadAsync(modelFileName);
+        const vrm = gltf.userData.vrm;
+        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+        VRMUtils.removeUnnecessaryJoints(gltf.scene);
+
+        scene.add(vrm.scene);
+        currentVRM = vrm;
+        window.currentVRM = vrm;
+
+        vrm.scene.rotation.y = targetRotationY;
+        if (vrm.lookAt) {
+          vrm.lookAt.target = lookAtTarget;
+        }
+
+        mixer = new THREE.AnimationMixer(vrm.scene);
+        window.mixer = mixer;
+
+        for (const k in actions) delete actions[k];
+
+        for (const [key, vrma] of Object.entries(cachedVRMAs)) {
+          try {
+            const rawClip = createVRMAnimationClip(vrma, vrm);
+            const sanitizedClip = sanitizeClip(rawClip, vrm, key);
+            const action = mixer.clipAction(sanitizedClip);
+            if (key === 'hurt' || key === 'wave' || key === 'celebrate') {
+              action.setLoop(THREE.LoopOnce);
+              action.clampWhenFinished = true;
+            } else {
+              action.setLoop(THREE.LoopRepeat);
+            }
+            const naturalSpeed = speedMap[key] || 0.90;
+            action.timeScale = naturalSpeed;
+            action.setEffectiveTimeScale(naturalSpeed);
+            actions[key] = action;
+          } catch (e) {
+            console.warn('Error binding anim:', key, e);
+          }
+        }
+        currentAction = null;
+        playAction(currentState || 'idle', 0.2);
+        console.log('[AstraVRM] Switched to model successfully:', modelFileName);
+      } catch (err) {
+        console.error('[AstraVRM] Model switch error:', err);
+      }
+    };
 
     function playAction(name, fadeDuration = 0.32) {
       if (!mixer) return;
