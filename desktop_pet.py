@@ -270,15 +270,12 @@ class DesktopRoboPet(QWidget):
         if self.state in [self.STATE_PICKED_UP, self.STATE_FALLING, self.STATE_CELEBRATE, self.STATE_HURT]:
             return
 
-        # If music is playing, rotate between dancing with new styles and walking with headphones
+        # If music is playing, stay drumming on rock drum kit continuously without interruption
         if self.has_headphones:
-            choices = [self.STATE_DANCE, self.STATE_WALK, self.STATE_DANCE]
-            self.state = random.choice(choices)
-            if self.state == self.STATE_DANCE:
-                self.dance_style = random.randint(0, 3)
-            elif self.state == self.STATE_WALK:
-                self.facing_direction = random.choice([-1, 1])
-            self.ai_timer.setInterval(random.randint(3500, 6000))
+            if self.state != self.STATE_DANCE:
+                self.state = self.STATE_DANCE
+                self._sync_vrm_state()
+            self.ai_timer.setInterval(8000)
             return
 
         # Regular state choices (no floating sit on air)
