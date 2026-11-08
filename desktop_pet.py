@@ -111,6 +111,15 @@ def draw_vector_double_note(p: QPainter, x: float, y: float, size: float, color:
 # -------------------------------------------------------------------------
 # Desktop Robo Pet Widget
 # -------------------------------------------------------------------------
+VRM_MODELS = [
+    ("Sendagaya_Shino.vrm", "Sendagaya Shino (Астра 3D)", "shino"),
+    ("Victoria_Rubin.vrm", "Victoria Rubin (Виктория 3D)", "victoria"),
+    ("AvatarSample_A.vrm", "Avatar Sample A (3D)", "sample_a"),
+    ("AvatarSample_B.vrm", "Avatar Sample B (3D)", "sample_b"),
+    ("AvatarSample_C.vrm", "Avatar Sample C (3D)", "sample_c"),
+    ("robo", "TwoCode Robo (Робот 2D)", "robo")
+]
+
 class DesktopRoboPet(QWidget):
     dismiss_requested = pyqtSignal()
     jump_to_island_requested = pyqtSignal()
@@ -125,7 +134,7 @@ class DesktopRoboPet(QWidget):
     STATE_CELEBRATE = "celebrate"
     STATE_HURT = "hurt"
 
-    def __init__(self, parent=None, size=130):
+    def __init__(self, parent=None, size=140, model="Sendagaya_Shino.vrm"):
         super().__init__(parent)
         self.setWindowTitle("TwoCode Desktop Robo")
 
@@ -142,7 +151,8 @@ class DesktopRoboPet(QWidget):
         self.setMouseTracking(True)
 
         self.pet_size = size
-        self.character = "shino"   # "shino" (Sendagaya Shino / Astra VRM) or "robo"
+        self.current_vrm_model = model or "Sendagaya_Shino.vrm"
+        self.character = "robo" if self.current_vrm_model == "robo" else "shino"
         self.setFixedSize(self.pet_size, self.pet_size + 40)
 
         # Mascot Appearance & Wardrobe
@@ -166,11 +176,15 @@ class DesktopRoboPet(QWidget):
                 self.vrm_view.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
                 self.vrm_view.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
                 self.vrm_view.settings().setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
-                self.vrm_view.setUrl(QUrl("http://127.0.0.1:8098/vrm_pet.html"))
+                self.vrm_view.setUrl(QUrl(f"http://127.0.0.1:8098/vrm_pet.html?model={self.current_vrm_model}"))
                 self.vrm_view.resize(self.width(), self.height())
                 self.vrm_view.installEventFilter(self)
                 if self.vrm_view.focusProxy():
                     self.vrm_view.focusProxy().installEventFilter(self)
+                if self.character == "robo":
+                    self.vrm_view.hide()
+                else:
+                    self.vrm_view.show()
             except Exception as e:
                 print(f"[DesktopPet] VRM WebEngine init note: {e}")
                 self.vrm_view = None
@@ -576,14 +590,13 @@ class DesktopRoboPet(QWidget):
             }
         """)
 
-        # Character Mode Toggle
-        if self.character == "shino":
-            act_char = QAction("🤖 Переключить на Робота TwoCode", self)
-            act_char.triggered.connect(lambda: self.set_character("robo"))
-        else:
-            act_char = QAction("✨ Переключить на Астру (Shino 3D VRM)", self)
-            act_char.triggered.connect(lambda: self.set_character("shino"))
-        menu.addAction(act_char)
+        # 3D Model Selection Submenu
+        model_menu = menu.addMenu("🎭 Выбрать модель маскота")
+        for m_file, m_label, m_id in VRM_MODELS:
+            is_active = (getattr(self, "current_vrm_model", "") == m_file if m_file != "robo" else self.character == "robo")
+            prefix = "✓ " if is_active else "   "
+            act_m = model_menu.addAction(f"{prefix}{m_label}")
+            act_m.triggered.connect(lambda chk, mf=m_file: self.set_vrm_model(mf))
 
         # 3D VRM Viewer in browser
         act_vrm = QAction("🌐 Открыть 3D VRM в браузере", self)
@@ -640,6 +653,22 @@ class DesktopRoboPet(QWidget):
         menu.addAction(act_hide)
 
         menu.exec(event.globalPos())
+
+    def set_vrm_model(self, model_file):
+        self.current_vrm_model = model_file
+        if not model_file or model_file == "robo":
+            self.set_character("robo")
+            if hasattr(self, 'vrm_view') and self.vrm_view:
+                self.vrm_view.hide()
+            self.update()
+            return
+
+        self.character = "shino"
+        if hasattr(self, 'vrm_view') and self.vrm_view:
+            self.vrm_view.show()
+            self.vrm_view.page().runJavaScript(f"window.switchVRMModel && window.switchVRMModel('{model_file}')")
+            self._sync_vrm_state()
+        self.update()
 
     def set_character(self, char_name):
         self.character = char_name
