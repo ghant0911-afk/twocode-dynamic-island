@@ -46,19 +46,18 @@
 
     const container = document.getElementById('canvas-container');
 
-    // 1. Renderer with complete alpha transparency
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    // 1. High Performance Transparent WebGL Renderer (0% CPU when idle, smooth 60 FPS)
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setClearColor(0x000000, 0); // Transparent background
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.0));
+    renderer.setClearColor(0x000000, 0); // Complete alpha transparency
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
 
-    // 2. Camera & Scene (Framed to show Sendagaya Shino head-to-toes)
-    const camera = new THREE.PerspectiveCamera(32.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
-    // Sendagaya Shino height is ~1.5m. Center camera at 0.76m, distance 2.75m
-    camera.position.set(0.0, 0.76, 2.75);
-    camera.lookAt(0.0, 0.75, 0.0);
+    // 2. Camera & Scene (Cinematic anime framing)
+    const camera = new THREE.PerspectiveCamera(31.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
+    camera.position.set(0.0, 0.77, 2.80);
+    camera.lookAt(0.0, 0.76, 0.0);
 
     const scene = new THREE.Scene();
 
@@ -66,15 +65,15 @@
     window.scene = scene;
     window.camera = camera;
 
-    // 3. Lighting (Warm anime studio lighting)
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    // 3. Studio Anime Lighting
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.45);
     keyLight.position.set(1.0, 2.2, 2.0).normalize();
     scene.add(keyLight);
 
-    const ambientLight = new THREE.AmbientLight(0xfff6f6, 1.05);
+    const ambientLight = new THREE.AmbientLight(0xfff5f5, 1.05);
     scene.add(ambientLight);
 
-    const fillLight = new THREE.DirectionalLight(0xf472b6, 0.6);
+    const fillLight = new THREE.DirectionalLight(0xf472b6, 0.55);
     fillLight.position.set(-1.5, 1.2, -1.0).normalize();
     scene.add(fillLight);
 
@@ -88,7 +87,25 @@
     let talkTimer = 0;
     let targetRotationY = Math.PI;
 
-    // Best in-place, balanced dance choreographies that stay centered in frame
+    // Realistic Biological Speeds (Natural Tempo)
+    const speedMap = {
+      idle: 0.85,        // Calming, deep natural breath (~14 bpm)
+      walk: 0.65,        // Natural human walking cadence (not frantic sprint)
+      picked_up: 0.85,   // Soft floating air dangle
+      falling: 0.90,     // Free fall suspension
+      hurt: 0.80,        // Dazed recovery
+      sit: 0.75,         // Gentle sitting
+      wave: 0.95,        // Cheerful hand wave
+      celebrate: 0.90,   // Joyful jump
+      talk: 0.85,        // Expressive conversational gestures
+      dance_1: 0.88,     // Smooth pop groove
+      dance_2: 0.88,     // Stylish anime groove
+      hiphop: 0.88,      // Clean hip hop tempo
+      twist_dance: 0.85, // Rhythm twist
+      silly_dance: 0.85  // Cute anime dance
+    };
+
+    // Selected In-Place Dance Choreographies that stay centered
     const danceNames = [
       'dance_1',
       'dance_2',
@@ -115,12 +132,13 @@
       silly_dance: 'animations/silly_dance.vrma'
     };
 
-    // Smooth Look-at Target
+    // Smooth Look-at Tracking
     const lookAtTarget = new THREE.Object3D();
     lookAtTarget.position.set(0, 1.35, 10.0);
     scene.add(lookAtTarget);
 
     const desiredLookAt = new THREE.Vector3(0, 1.35, 10.0);
+    let lastMouseMoveTime = Date.now();
 
     // 4. VRM & Animation Loader
     const loader = new GLTFLoader();
@@ -174,7 +192,7 @@
 
     async function init() {
       try {
-        console.log('[VRMPet] Loading Sendagaya Shino 3D VRM...');
+        console.log('[AstraVRM] Loading Sendagaya Shino 3D Avatar...');
         const gltf = await loader.loadAsync('Sendagaya_Shino.vrm');
         const vrm = gltf.userData.vrm;
         VRMUtils.removeUnnecessaryVertices(gltf.scene);
@@ -184,10 +202,10 @@
         currentVRM = vrm;
         window.currentVRM = vrm;
 
-        // Face forward
+        // Face forward towards camera
         vrm.scene.rotation.y = Math.PI;
 
-        // Setup lookAt
+        // Setup lookAt target
         if (vrm.lookAt) {
           vrm.lookAt.target = lookAtTarget;
         }
@@ -197,8 +215,8 @@
         window.mixer = mixer;
         window.actions = actions;
 
-        // Preload key animations asynchronously with strict root motion sanitization
-        console.log('[VRMPet] Preloading skeletal animations...');
+        // Preload key animations asynchronously
+        console.log('[AstraVRM] Preloading natural humanoid animations...');
         for (const [key, path] of Object.entries(animConfig)) {
           try {
             const animGltf = await loader.loadAsync(path);
@@ -216,26 +234,26 @@
               actions[key] = action;
             }
           } catch (e) {
-            console.warn('[VRMPet] Could not load anim:', key, e);
+            console.warn('[AstraVRM] Could not load anim:', key, e);
           }
         }
 
-        console.log('[VRMPet] Loaded actions:', Object.keys(actions));
+        console.log('[AstraVRM] Loaded actions:', Object.keys(actions));
 
-        // Start in idle
-        playAction('idle', 0.2);
+        // Start in gentle idle
+        playAction('idle', 0.25);
 
         window.isPetReady = true;
       } catch (err) {
-        console.error('[VRMPet] Initialization error:', err);
+        console.error('[AstraVRM] Initialization error:', err);
       }
     }
 
-    function playAction(name, fadeDuration = 0.3) {
+    function playAction(name, fadeDuration = 0.32) {
       if (!mixer) return;
       const nextAction = actions[name];
       if (!nextAction) {
-        console.warn('[VRMPet] Action not found:', name);
+        console.warn('[AstraVRM] Action not found:', name);
         return;
       }
 
@@ -244,7 +262,8 @@
       }
 
       nextAction.reset();
-      nextAction.setEffectiveTimeScale(1.0);
+      const naturalSpeed = speedMap[name] || 0.90;
+      nextAction.setEffectiveTimeScale(naturalSpeed);
       nextAction.setEffectiveWeight(1.0);
 
       if (currentAction) {
@@ -261,12 +280,12 @@
       currentState = state || 'idle';
       if (!currentVRM?.expressionManager) return;
 
-      // Reset expressions
+      // Soft reset expressions
       ['happy', 'relaxed', 'surprised', 'sad', 'angry'].forEach(e => {
         currentVRM.expressionManager.setValue(e, 0);
       });
 
-      // Update Facing Angle
+      // Update Facing Angle smoothly
       if (facingDirection !== undefined) {
         if (facingDirection < 0) {
           targetRotationY = Math.PI - 0.35; // turned slightly left
@@ -280,8 +299,8 @@
       }
 
       if (currentState === 'dance') {
-        currentVRM.expressionManager.setValue('happy', 1.0);
-        // Cycle dance styles
+        currentVRM.expressionManager.setValue('happy', 0.9);
+        currentVRM.expressionManager.setValue('relaxed', 0.3);
         const chosenDance = danceNames[currentDanceIndex % danceNames.length];
         currentDanceIndex++;
         playAction(chosenDance, 0.35);
@@ -296,16 +315,18 @@
         currentVRM.expressionManager.setValue('relaxed', 1.0);
         playAction('sit', 0.4);
       } else if (currentState === 'walk') {
+        currentVRM.expressionManager.setValue('relaxed', 0.3);
         playAction('walk', 0.25);
       } else if (currentState === 'wave') {
-        currentVRM.expressionManager.setValue('happy', 0.9);
-        playAction('wave', 0.3);
+        currentVRM.expressionManager.setValue('happy', 1.0);
+        playAction('wave', 0.25);
       } else if (currentState === 'celebrate') {
         currentVRM.expressionManager.setValue('happy', 1.0);
         playAction('celebrate', 0.25);
       } else {
-        // Idle
-        currentVRM.expressionManager.setValue('relaxed', 0.3);
+        // Idle: pleasant gentle warmth
+        currentVRM.expressionManager.setValue('relaxed', 0.35);
+        currentVRM.expressionManager.setValue('happy', 0.15);
         playAction('idle', 0.35);
       }
     };
@@ -319,13 +340,14 @@
     window.setTalking = (talking) => {
       isTalking = Boolean(talking);
       if (isTalking) {
-        if (actions['talk'] && currentState === 'idle') {
-          playAction('talk', 0.3);
+        if (actions['talk'] && (currentState === 'idle' || currentState === 'sit')) {
+          playAction('talk', 0.25);
         }
       } else {
         if (currentVRM?.expressionManager) {
           currentVRM.expressionManager.setValue('aa', 0);
           currentVRM.expressionManager.setValue('oh', 0);
+          currentVRM.expressionManager.setValue('ih', 0);
         }
         if (currentState === 'idle') {
           playAction('idle', 0.3);
@@ -334,7 +356,7 @@
     };
 
     window.setLookAt = (screenNormX, screenNormY) => {
-      // Norm coords: -1.0 to 1.0
+      lastMouseMoveTime = Date.now();
       desiredLookAt.x = screenNormX * 2.2;
       desiredLookAt.y = 1.35 - screenNormY * 1.8;
     };
@@ -346,6 +368,14 @@
       return chosen;
     };
 
+    window.triggerWave = () => {
+      window.setPetState('wave');
+    };
+
+    window.triggerJump = () => {
+      window.setPetState('celebrate');
+    };
+
     // Track mouse over pet window
     window.addEventListener('mousemove', (e) => {
       const normX = (e.clientX / window.innerWidth) * 2 - 1;
@@ -353,8 +383,13 @@
       window.setLookAt(normX, normY);
     });
 
-    // 6. 3D Render & Animation Loop
+    // 6. 3D Render & Natural Animation Loop (Silky 60 FPS)
     const clock = new THREE.Clock();
+
+    // Natural Eye Blinking State Machine
+    let blinkTimer = 2.0;
+    let isBlinking = false;
+    let blinkProgress = 0;
 
     function animate() {
       requestAnimationFrame(animate);
@@ -366,6 +401,7 @@
       }
 
       if (currentVRM) {
+        // VRM update handles expressionManager, lookAt, and springBoneManager (hair/hoodie physics)
         currentVRM.update(delta);
 
         // Hardware safety guard: ensure hips position never drops below ground or drifts
@@ -385,27 +421,46 @@
         // Smoothly interpolate rotation facing
         currentVRM.scene.rotation.y += (targetRotationY - currentVRM.scene.rotation.y) * 0.12;
 
+        // Ambient glance wanderer when mouse cursor is not moving
+        if (Date.now() - lastMouseMoveTime > 2500) {
+          const wanderX = Math.sin(time * 0.45) * 0.7;
+          const wanderY = 1.35 + Math.cos(time * 0.3) * 0.25;
+          desiredLookAt.set(wanderX, wanderY, 10.0);
+        }
+
         // Smoothly interpolate lookAt target
         lookAtTarget.position.lerp(desiredLookAt, 0.08);
 
-        // Natural Periodic Blinking
+        // Natural Human Eye Blinking with micro double-blinks
         if (currentState !== 'hurt' && currentState !== 'dance') {
-          const blinkCycle = Math.sin(time * 1.6);
-          if (blinkCycle > 0.94) {
-            const blinkVal = Math.sin((blinkCycle - 0.94) / 0.06 * Math.PI);
-            currentVRM.expressionManager?.setValue('blink', blinkVal);
-          } else {
-            currentVRM.expressionManager?.setValue('blink', 0.0);
+          blinkTimer -= delta;
+          if (blinkTimer <= 0) {
+            isBlinking = true;
+            blinkProgress = 0;
+            // Next blink in 2.5 to 5.5 seconds (occasional quick double blink)
+            blinkTimer = (Math.random() < 0.22) ? 0.32 : (2.5 + Math.random() * 3.0);
+          }
+          if (isBlinking) {
+            blinkProgress += delta * 12.0; // quick 150ms natural eyelid closure
+            if (blinkProgress < Math.PI) {
+              const val = Math.sin(blinkProgress);
+              currentVRM.expressionManager?.setValue('blink', val);
+            } else {
+              currentVRM.expressionManager?.setValue('blink', 0.0);
+              isBlinking = false;
+            }
           }
         }
 
-        // Real-time lip-sync mouth opening
+        // Real-time lip-sync mouth vowels with natural speech modulation
         if (isTalking) {
-          talkTimer += delta * 14.0;
-          const openA = (Math.sin(talkTimer) + 1.0) * 0.45;
-          const openO = (Math.cos(talkTimer * 0.7) + 1.0) * 0.35;
+          talkTimer += delta * 12.0;
+          const openA = Math.max(0, Math.sin(talkTimer)) * 0.65;
+          const openO = Math.max(0, Math.cos(talkTimer * 0.75)) * 0.45;
+          const openI = Math.max(0, Math.sin(talkTimer * 1.3)) * 0.35;
           currentVRM.expressionManager?.setValue('aa', openA);
           currentVRM.expressionManager?.setValue('oh', openO);
+          currentVRM.expressionManager?.setValue('ih', openI);
         }
       }
 

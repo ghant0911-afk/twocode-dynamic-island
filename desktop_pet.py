@@ -179,7 +179,7 @@ class DesktopRoboPet(QWidget):
         # Animation Ticks & Kinematics
         self.anim_tick = 0
         self.walk_phase = 0.0
-        self.walk_speed = 2.2
+        self.walk_speed = 1.3  # Natural calm human walking cadence
         self.blink_tick = 0
         self.is_blinking = False
         self.dangle_phase = 0.0
@@ -436,9 +436,9 @@ class DesktopRoboPet(QWidget):
         # Expressive voice reaction via Baya
         hurt_lines = [
             "Ой-ёй! За что уронили?!",
-            "Ай! Мои шестерёнки чуть не рассыпались!",
+            "Ай! Осторожнее, я же хрупкая!",
             "Уф... земля оказалась слишком твёрдой!",
-            "Осторожнее! Я же робот, а не мячик!",
+            "Осторожнее! Я же твоя Астра, а не мячик!",
             "Ох... звёздочки перед глазами кружатся..."
         ]
         try:
@@ -602,6 +602,16 @@ class DesktopRoboPet(QWidget):
         act_walk.triggered.connect(lambda: self._set_manual_state(self.STATE_WALK))
         menu.addAction(act_walk)
 
+        # Talk Action
+        act_talk = QAction("💬 Поговорить с Астрой...", self)
+        act_talk.triggered.connect(self.open_talk_dialog)
+        menu.addAction(act_talk)
+
+        # Wave Action
+        act_wave = QAction("👋 Помахать рукой (Привет!)", self)
+        act_wave.triggered.connect(self.react_to_click)
+        menu.addAction(act_wave)
+
         # Dance Action
         act_dance = QAction("🕺 Танцевать под бит", self)
         act_dance.triggered.connect(lambda: self._set_manual_state(self.STATE_DANCE))
@@ -650,24 +660,67 @@ class DesktopRoboPet(QWidget):
         if hasattr(self, 'vrm_view') and self.vrm_view:
             self.vrm_view.resize(self.size())
 
+    def react_to_click(self):
+        """Cute interactive reaction when the user clicks Astra"""
+        self.spawn_hearts(3)
+        if hasattr(self, 'vrm_view') and self.vrm_view:
+            self.vrm_view.page().runJavaScript("window.setPetState && window.setPetState('wave')")
+        
+        greetings = [
+            "Привет! Я тут, рядом с тобой ✨",
+            "Слушаю тебя! Чем помочь?",
+            "Я на связи! Всё под контролем 💖",
+            "Какая хорошая музыка сегодня 🎵",
+            "Рада тебя видеть! Как настроение?"
+        ]
+        try:
+            import random
+            from voice_engine import VoiceEngine
+            VoiceEngine.get().speak(random.choice(greetings))
+        except Exception:
+            pass
+
+    def open_talk_dialog(self):
+        """Opens quick interactive speech dialog with Astra"""
+        try:
+            from PyQt6.QtWidgets import QInputDialog
+            text, ok = QInputDialog.getText(self, "Чат с Астрой", "О чём хочешь поговорить с Астрой?")
+            if ok and text.strip():
+                def _worker():
+                    try:
+                        from deepseek_brain import DeepSeekBrain
+                        from voice_engine import VoiceEngine
+                        resp, _ = DeepSeekBrain.get().ask(text.strip())
+                        VoiceEngine.get().speak(resp)
+                    except Exception as e:
+                        print(f"[AstraTalk] error: {e}")
+                import threading
+                threading.Thread(target=_worker, daemon=True).start()
+        except Exception as e:
+            print(f"[AstraTalk] Dialog error: {e}")
+
     def eventFilter(self, watched, event):
         if hasattr(self, 'vrm_view') and self.vrm_view and (watched == self.vrm_view or watched == self.vrm_view.focusProxy()):
             if event.type() == QEvent.Type.MouseButtonPress:
                 if event.button() == Qt.MouseButton.LeftButton:
-                    self.dragging = True
-                    self.state = self.STATE_PICKED_UP
-                    self.hurt_timer = 0
-                    self.squash_factor = 1.0
-                    self._sync_vrm_state()
+                    self.dragging = False
+                    self.drag_start_pos = event.globalPosition().toPoint()
                     self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                     return True
                 elif event.button() == Qt.MouseButton.RightButton:
                     self.contextMenuEvent(event)
                     return True
             elif event.type() == QEvent.Type.MouseMove:
-                if self.dragging:
-                    self.move(event.globalPosition().toPoint() - self.drag_offset)
-                    return True
+                if (event.buttons() & Qt.MouseButton.LeftButton) and hasattr(self, 'drag_start_pos'):
+                    if not self.dragging and (event.globalPosition().toPoint() - self.drag_start_pos).manhattanLength() > 6:
+                        self.dragging = True
+                        self.state = self.STATE_PICKED_UP
+                        self.hurt_timer = 0
+                        self.squash_factor = 1.0
+                        self._sync_vrm_state()
+                    if self.dragging:
+                        self.move(event.globalPosition().toPoint() - self.drag_offset)
+                        return True
                 elif hasattr(self, 'vrm_view') and self.vrm_view:
                     norm_x = (event.position().x() / max(1, self.width())) * 2.0 - 1.0
                     norm_y = (event.position().y() / max(1, self.height())) * 2.0 - 1.0
@@ -684,6 +737,14 @@ class DesktopRoboPet(QWidget):
                         self.state = self.STATE_IDLE
                     self._sync_vrm_state()
                     return True
+                else:
+                    self.react_to_click()
+                    return True
+            elif event.type() == QEvent.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.LeftButton:
+                self.state = self.STATE_CELEBRATE
+                self.spawn_hearts(5)
+                self._sync_vrm_state()
+                return True
         return super().eventFilter(watched, event)
 
     def _sync_vrm_state(self):
