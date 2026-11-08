@@ -14,6 +14,13 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWebEngineCore import QWebEngineSettings
+    WEBENGINE_AVAILABLE = True
+except Exception:
+    WEBENGINE_AVAILABLE = False
+
 if sys.stdout is None:
     sys.stdout = open(os.devnull, "w")
 if sys.stderr is None:
@@ -53,7 +60,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QGridLayout, QFrame, QStackedWidget, QSystemTrayIcon, QMenu, QSlider,
-    QLineEdit, QTextEdit, QScrollArea, QFileDialog
+    QLineEdit, QTextEdit, QScrollArea, QFileDialog, QComboBox
 )
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1533,6 +1540,46 @@ class AmbientRoboTabWidget(QWidget):
         self.status_lbl.setStyleSheet("color: #FACC15; font-size: 12px; font-weight: 700;")
         layout.addWidget(self.status_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # 3D Model Selector Row
+        model_row = QHBoxLayout()
+        model_row.setSpacing(6)
+        lbl_model = QLabel("🎭 3D Модель:")
+        lbl_model.setStyleSheet("color: #C084FC; font-size: 11px; font-weight: 700;")
+        self.model_combo = QComboBox()
+        self.model_combo.setFixedHeight(26)
+        self.model_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.model_combo.setStyleSheet("""
+            QComboBox {
+                background: #1C1C1E;
+                color: #FACC15;
+                border: 1px solid rgba(250, 204, 21, 0.4);
+                border-radius: 7px;
+                padding: 2px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QComboBox:hover {
+                border-color: #FACC15;
+                background: #2C2C2E;
+            }
+            QComboBox QAbstractItemView {
+                background: #1C1C1E;
+                color: #FFFFFF;
+                selection-background-color: #8B5CF6;
+                border: 1px solid #38BDF8;
+            }
+        """)
+        try:
+            from desktop_pet import VRM_MODELS
+            for m_file, m_label, m_id in VRM_MODELS:
+                self.model_combo.addItem(m_label, m_file)
+        except Exception:
+            pass
+        self.model_combo.currentIndexChanged.connect(self.on_model_combo_changed)
+        model_row.addWidget(lbl_model)
+        model_row.addWidget(self.model_combo)
+        layout.addLayout(model_row)
+
         self.speech_bubble = QLabel("«Привет! Я Астра — твой персональный ИИ-ассистент на базе Sendagaya Shino VRM и DeepSeek!»")
         self.speech_bubble.setWordWrap(True)
         self.speech_bubble.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1863,6 +1910,22 @@ class AmbientRoboTabWidget(QWidget):
                     color: #000000;
                 }
             """)
+
+    def on_model_combo_changed(self, idx):
+        model_file = self.model_combo.currentData()
+        w = self.window()
+        if hasattr(w, "on_change_vrm_model"):
+            w.on_change_vrm_model(model_file)
+
+    def update_model_label(self, model_file):
+        for i in range(self.model_combo.count()):
+            if self.model_combo.itemData(i) == model_file:
+                self.model_combo.blockSignals(True)
+                self.model_combo.setCurrentIndex(i)
+                self.model_combo.blockSignals(False)
+                break
+        txt = self.model_combo.currentText()
+        self.status_lbl.setText(f"✨ {txt}")
 
     def toggle_microphone(self):
         if not HAS_VOICE_ENGINE:
@@ -2946,7 +3009,8 @@ class TwoCodeIsland(QWidget):
         if not getattr(self, "desktop_pet", None):
             try:
                 from desktop_pet import DesktopRoboPet
-                self.desktop_pet = DesktopRoboPet()
+                selected_model = getattr(self, "selected_vrm_model", "Sendagaya_Shino.vrm")
+                self.desktop_pet = DesktopRoboPet(model=selected_model)
                 self.desktop_pet.dismiss_requested.connect(self.dismiss_desktop_pet)
                 self.desktop_pet.jump_to_island_requested.connect(self.dismiss_desktop_pet)
             except Exception as e:
@@ -2960,6 +3024,14 @@ class TwoCodeIsland(QWidget):
             self.save_config()
             if hasattr(self, "robo_tab"):
                 self.robo_tab.update_pet_btn_state(True)
+
+    def on_change_vrm_model(self, model_file):
+        self.selected_vrm_model = model_file
+        self.save_config()
+        if getattr(self, "desktop_pet", None):
+            self.desktop_pet.set_vrm_model(model_file)
+        if hasattr(self, "robo_tab"):
+            self.robo_tab.update_model_label(model_file)
 
     def dismiss_desktop_pet(self):
         if getattr(self, "desktop_pet", None):
@@ -2991,6 +3063,16 @@ class TwoCodeIsland(QWidget):
 
         act_pet = menu.addAction("🐾 Маскот на рабочем столе")
         act_pet.triggered.connect(self.toggle_desktop_pet)
+
+        # 3D Model Submenu
+        model_tray_menu = menu.addMenu("🎭 Выбрать 3D модель")
+        try:
+            from desktop_pet import VRM_MODELS
+            for m_file, m_label, m_id in VRM_MODELS:
+                act_m = model_tray_menu.addAction(m_label)
+                act_m.triggered.connect(lambda chk, mf=m_file: self.on_change_vrm_model(mf))
+        except Exception:
+            pass
 
         act_shelf = menu.addAction("📂 Полка файлов")
         act_shelf.triggered.connect(lambda: (self.expand(), self.dock.select_tab(1)))
@@ -3025,6 +3107,7 @@ class TwoCodeIsland(QWidget):
 
     def load_config(self):
         self.always_on_top = True
+        self.selected_vrm_model = "Sendagaya_Shino.vrm"
         if os.path.exists(CONFIG_PATH):
             try:
                 with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -3032,10 +3115,13 @@ class TwoCodeIsland(QWidget):
                     self.sound_enabled = cfg.get("sound_enabled", True)
                     self.always_on_top = cfg.get("always_on_top", True)
                     self.desktop_pet_enabled = cfg.get("desktop_pet_enabled", True)
+                    self.selected_vrm_model = cfg.get("selected_vrm_model", "Sendagaya_Shino.vrm")
                     self.custom_x = cfg.get("pos_x", None)
                     self.custom_y = cfg.get("pos_y", None)
             except Exception:
                 pass
+        if hasattr(self, "robo_tab"):
+            self.robo_tab.update_model_label(self.selected_vrm_model)
 
     def save_config(self):
         try:
@@ -3043,6 +3129,7 @@ class TwoCodeIsland(QWidget):
                 "sound_enabled": self.sound_enabled,
                 "always_on_top": self.always_on_top,
                 "desktop_pet_enabled": getattr(self, 'desktop_pet_enabled', True),
+                "selected_vrm_model": getattr(self, "selected_vrm_model", "Sendagaya_Shino.vrm"),
                 "pos_x": self.custom_x,
                 "pos_y": self.custom_y
             }
