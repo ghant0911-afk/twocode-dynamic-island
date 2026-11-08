@@ -231,6 +231,9 @@
               } else {
                 action.setLoop(THREE.LoopRepeat);
               }
+              const naturalSpeed = speedMap[key] || 0.90;
+              action.timeScale = naturalSpeed;
+              action.setEffectiveTimeScale(naturalSpeed);
               actions[key] = action;
             }
           } catch (e) {
@@ -263,6 +266,7 @@
 
       nextAction.reset();
       const naturalSpeed = speedMap[name] || 0.90;
+      nextAction.timeScale = naturalSpeed;
       nextAction.setEffectiveTimeScale(naturalSpeed);
       nextAction.setEffectiveWeight(1.0);
 
