@@ -134,7 +134,7 @@ class DesktopRoboPet(QWidget):
     STATE_CELEBRATE = "celebrate"
     STATE_HURT = "hurt"
 
-    def __init__(self, parent=None, size=140, model="Sendagaya_Shino.vrm"):
+    def __init__(self, parent=None, size=260, model="Sendagaya_Shino.vrm"):
         super().__init__(parent)
         self.setWindowTitle("TwoCode Desktop Robo")
 
@@ -153,7 +153,7 @@ class DesktopRoboPet(QWidget):
         self.pet_size = size
         self.current_vrm_model = model or "Sendagaya_Shino.vrm"
         self.character = "robo" if self.current_vrm_model == "robo" else "shino"
-        self.setFixedSize(self.pet_size, self.pet_size + 40)
+        self.setFixedSize(self.pet_size, int(self.pet_size * 1.45))
 
         # Mascot Appearance & Wardrobe
         self.has_headphones = False
@@ -193,7 +193,7 @@ class DesktopRoboPet(QWidget):
         # Animation Ticks & Kinematics
         self.anim_tick = 0
         self.walk_phase = 0.0
-        self.walk_speed = 1.3  # Natural calm human walking cadence
+        self.walk_speed = 0.75  # Gentle calm natural walking pace (not frantic run)
         self.blink_tick = 0
         self.is_blinking = False
         self.dangle_phase = 0.0
@@ -277,18 +277,15 @@ class DesktopRoboPet(QWidget):
             self.ai_timer.setInterval(random.randint(3500, 6000))
             return
 
-        # Regular state choices
+        # Regular state choices (no floating sit on air)
         r = random.random()
-        if r < 0.45:
+        if r < 0.35:
             self.state = self.STATE_WALK
             self.facing_direction = random.choice([-1, 1])
-            self.ai_timer.setInterval(random.randint(4000, 8000))
-        elif r < 0.80:
-            self.state = self.STATE_IDLE
-            self.ai_timer.setInterval(random.randint(3000, 6000))
-        else:
-            self.state = self.STATE_SIT
             self.ai_timer.setInterval(random.randint(4000, 7000))
+        else:
+            self.state = self.STATE_IDLE
+            self.ai_timer.setInterval(random.randint(4500, 8500))
 
     def showEvent(self, event):
         super().showEvent(event)
