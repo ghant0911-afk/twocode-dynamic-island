@@ -54,10 +54,10 @@
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
 
-    // 2. Camera & Scene (Cinematic anime framing)
-    const camera = new THREE.PerspectiveCamera(31.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
-    camera.position.set(0.0, 0.77, 2.80);
-    camera.lookAt(0.0, 0.76, 0.0);
+    // 2. Camera & Scene (Zero head-clipping framing, generous headroom above hair)
+    const camera = new THREE.PerspectiveCamera(32.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
+    camera.position.set(0.0, 0.72, 3.40);
+    camera.lookAt(0.0, 0.72, 0.0);
 
     const scene = new THREE.Scene();
 
@@ -91,7 +91,7 @@
     // Realistic Biological Speeds (Natural Tempo)
     const speedMap = {
       idle: 0.85,        // Calming, deep natural breath (~14 bpm)
-      walk: 0.65,        // Natural human walking cadence (not frantic sprint)
+      walk: 0.50,        // Calm gentle human walking cadence
       picked_up: 0.85,   // Soft floating air dangle
       falling: 0.90,     // Free fall suspension
       hurt: 0.80,        // Dazed recovery
