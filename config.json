@@ -1,7 +1,8 @@
 {
-  "sound_enabled": false,
+  "sound_enabled": true,
   "always_on_top": true,
-  "desktop_pet_enabled": false,
+  "desktop_pet_enabled": true,
+  "selected_vrm_model": "Sendagaya_Shino.vrm",
   "pos_x": null,
   "pos_y": null
 }
