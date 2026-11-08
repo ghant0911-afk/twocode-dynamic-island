@@ -3144,52 +3144,26 @@ def start_vrm_server():
     if not os.path.exists(vrm_dir):
         return
 
-    class VRMStaticHTTPHandler(BaseHTTPRequestHandler):
+    from http.server import SimpleHTTPRequestHandler
+    import mimetypes
+    mimetypes.add_type("model/gltf-binary", ".vrm")
+    mimetypes.add_type("model/gltf-binary", ".vrma")
+    mimetypes.add_type("model/gltf-binary", ".glb")
+    mimetypes.add_type("application/octet-stream", ".fbx")
+
+    class VRMStaticHTTPHandler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=vrm_dir, **kwargs)
+
         def log_message(self, format, *args):
             pass
 
-        def do_GET(self):
-            parsed = urllib.parse.urlparse(self.path)
-            rel = parsed.path.lstrip("/").replace("/", os.sep)
-            if not rel:
-                rel = "vrm_viewer.html"
-            target_path = os.path.abspath(os.path.join(vrm_dir, rel))
-            if not target_path.startswith(vrm_dir) or not os.path.exists(target_path):
-                self.send_error(404, "File Not Found")
-                return
-            if os.path.isdir(target_path):
-                target_path = os.path.join(target_path, "vrm_viewer.html")
-                if not os.path.exists(target_path):
-                    self.send_error(404, "Index Not Found")
-                    return
-
-            mime = "application/octet-stream"
-            if target_path.endswith(".html"):
-                mime = "text/html; charset=utf-8"
-            elif target_path.endswith(".js"):
-                mime = "application/javascript"
-            elif target_path.endswith(".json"):
-                mime = "application/json"
-            elif target_path.endswith(".css"):
-                mime = "text/css"
-            elif target_path.endswith(".vrm") or target_path.endswith(".vrma"):
-                mime = "model/gltf-binary"
-            elif target_path.endswith(".png"):
-                mime = "image/png"
-            elif target_path.endswith(".jpg"):
-                mime = "image/jpeg"
-
-            try:
-                with open(target_path, "rb") as f:
-                    content = f.read()
-                self.send_response(200)
-                self.send_header("Content-Type", mime)
-                self.send_header("Content-Length", str(len(content)))
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(content)
-            except Exception:
-                pass
+        def end_headers(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "*")
+            self.send_header("Cache-Control", "public, max-age=3600")
+            super().end_headers()
 
     try:
         server = ReusableHTTPServer(("127.0.0.1", 8098), VRMStaticHTTPHandler)
