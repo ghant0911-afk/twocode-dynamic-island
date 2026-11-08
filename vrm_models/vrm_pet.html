@@ -43,6 +43,7 @@
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
     import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
+    import { loadMixamoAnimation } from './loadMixamoAnimation.js';
 
     const container = document.getElementById('canvas-container');
 
@@ -88,6 +89,97 @@
     let talkTimer = 0;
     let targetRotationY = Math.PI;
 
+    
+    // 3. Drum Kit Stage Group (Seat + Kit + Sticks)
+    const drumStageGroup = new THREE.Group();
+    drumStageGroup.name = 'drumStage';
+    drumStageGroup.visible = false;
+    scene.add(drumStageGroup);
+
+    // Drum Throne (Stool)
+    const stoolGroup = new THREE.Group();
+    const cushion = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.18, 0.08, 24),
+      new THREE.MeshStandardMaterial({ color: 0x1f1f23, roughness: 0.35 })
+    );
+    cushion.position.y = 0.44;
+    stoolGroup.add(cushion);
+    const legMat = new THREE.MeshStandardMaterial({ color: 0xd0d5dd, metalness: 0.85, roughness: 0.15 });
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.44, 16), legMat);
+    stem.position.y = 0.22;
+    stoolGroup.add(stem);
+    for (let i = 0; i < 3; i++) {
+      const angle = (i * 2 * Math.PI) / 3;
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.28, 12), legMat);
+      leg.position.set(Math.cos(angle) * 0.12, 0.14, Math.sin(angle) * 0.12);
+      leg.rotation.z = Math.cos(angle) * 0.35;
+      leg.rotation.x = -Math.sin(angle) * 0.35;
+      stoolGroup.add(leg);
+    }
+    stoolGroup.position.set(0, 0, -0.05);
+    drumStageGroup.add(stoolGroup);
+
+    // 3D Drum Kit
+    const gltfLoader = new GLTFLoader();
+    let drumKit = null;
+    gltfLoader.load('drum_kit.glb', (gltf) => {
+      drumKit = gltf.scene;
+      drumKit.scale.set(0.58, 0.58, 0.58);
+      drumKit.position.set(0, -0.05, 0.32);
+      drumKit.rotation.y = Math.PI;
+      drumStageGroup.add(drumKit);
+      console.log('[AstraVRM] 3D Drum Kit attached to stage!');
+    });
+
+    let stickL = null;
+    let stickR = null;
+
+    function createStick() {
+      const stick = new THREE.Group();
+      const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.007, 0.012, 0.42, 16),
+        new THREE.MeshStandardMaterial({ color: 0xe5c99e, roughness: 0.4 })
+      );
+      mesh.position.y = 0.14;
+      stick.add(mesh);
+      return stick;
+    }
+
+    function attachDrumsticks(vrm) {
+      if (stickL && stickL.parent) stickL.parent.remove(stickL);
+      if (stickR && stickR.parent) stickR.parent.remove(stickR);
+      const leftHand = vrm.humanoid?.getNormalizedBoneNode('leftHand');
+      const rightHand = vrm.humanoid?.getNormalizedBoneNode('rightHand');
+      if (leftHand) {
+        stickL = createStick();
+        stickL.rotation.x = Math.PI / 2;
+        stickL.rotation.z = 0.25;
+        stickL.visible = (currentState === 'dance');
+        leftHand.add(stickL);
+      }
+      if (rightHand) {
+        stickR = createStick();
+        stickR.rotation.x = Math.PI / 2;
+        stickR.rotation.z = -0.25;
+        stickR.visible = (currentState === 'dance');
+        rightHand.add(stickR);
+      }
+    }
+
+    async function loadDrummingAnimation(vrm) {
+      try {
+        console.log('[AstraVRM] Loading Mixamo Drumming mocap...');
+        const clip = await loadMixamoAnimation('animations/Playing_Drums.fbx', vrm);
+        const action = mixer.clipAction(clip);
+        action.setLoop(THREE.LoopRepeat);
+        action.timeScale = 1.0;
+        actions['drumming'] = action;
+        console.log('[AstraVRM] Drumming animation ready!');
+      } catch (err) {
+        console.warn('[AstraVRM] Failed to load drumming mocap:', err);
+      }
+    }
+
     // Realistic Biological Speeds (Natural Tempo)
     const speedMap = {
       idle: 0.85,        // Calming, deep natural breath (~14 bpm)
@@ -99,6 +191,7 @@
       wave: 0.95,        // Cheerful hand wave
       celebrate: 0.90,   // Joyful jump
       talk: 0.85,        // Expressive conversational gestures
+      drumming: 1.0,        // Authentic Rock Drumming
       dance_1: 0.88,     // Smooth pop groove
       dance_2: 0.88,     // Stylish anime groove
       hiphop: 0.88,      // Clean hip hop tempo
@@ -207,6 +300,7 @@
 
         // Face forward towards camera
         vrm.scene.rotation.y = Math.PI;
+        attachDrumsticks(vrm);
 
         // Setup lookAt target
         if (vrm.lookAt) {
@@ -216,40 +310,60 @@
         // Animation Mixer
         mixer = new THREE.AnimationMixer(vrm.scene);
         window.mixer = mixer;
+        attachDrumsticks(vrm);
         window.actions = actions;
-
-        // Preload key animations asynchronously
-        console.log('[AstraVRM] Preloading natural humanoid animations...');
-        for (const [key, path] of Object.entries(animConfig)) {
-          try {
-            const animGltf = await loader.loadAsync(path);
-            const vrma = animGltf.userData.vrmAnimations?.[0];
-            if (vrma) {
-              cachedVRMAs[key] = vrma;
-              const rawClip = createVRMAnimationClip(vrma, vrm);
-              const sanitizedClip = sanitizeClip(rawClip, vrm, key);
-              const action = mixer.clipAction(sanitizedClip);
-              if (key === 'hurt' || key === 'wave' || key === 'celebrate') {
-                action.setLoop(THREE.LoopOnce);
-                action.clampWhenFinished = true;
-              } else {
-                action.setLoop(THREE.LoopRepeat);
-              }
-              const naturalSpeed = speedMap[key] || 0.90;
-              action.timeScale = naturalSpeed;
-              action.setEffectiveTimeScale(naturalSpeed);
-              actions[key] = action;
-            }
-          } catch (e) {
-            console.warn('[AstraVRM] Could not load anim:', key, e);
+        // Priority 1: Load Idle and Rock Drumming mocap immediately for instant responsiveness
+        try {
+          const idleGltf = await loader.loadAsync(animConfig.idle);
+          const vrma = idleGltf.userData.vrmAnimations?.[0];
+          if (vrma) {
+            cachedVRMAs['idle'] = vrma;
+            const rawClip = createVRMAnimationClip(vrma, vrm);
+            const sanitizedClip = sanitizeClip(rawClip, vrm, 'idle');
+            const action = mixer.clipAction(sanitizedClip);
+            action.setLoop(THREE.LoopRepeat);
+            action.timeScale = speedMap.idle || 0.85;
+            actions['idle'] = action;
           }
+        } catch (e) {
+          console.warn('[AstraVRM] Could not load idle anim:', e);
         }
 
-        console.log('[AstraVRM] Loaded actions:', Object.keys(actions));
+        await loadDrummingAnimation(vrm);
+        console.log('[AstraVRM] Core actions loaded:', Object.keys(actions));
 
-        // Start in gentle idle
+        // Start in gentle idle immediately!
         playAction('idle', 0.25);
+        window.isPetReady = true;
 
+        // Priority 2: Preload secondary animations in background non-blocking
+        (async () => {
+          for (const [key, path] of Object.entries(animConfig)) {
+            if (key === 'idle') continue;
+            try {
+              const animGltf = await loader.loadAsync(path);
+              const vrma = animGltf.userData.vrmAnimations?.[0];
+              if (vrma) {
+                cachedVRMAs[key] = vrma;
+                const rawClip = createVRMAnimationClip(vrma, vrm);
+                const sanitizedClip = sanitizeClip(rawClip, vrm, key);
+                const action = mixer.clipAction(sanitizedClip);
+                if (key === 'hurt' || key === 'wave' || key === 'celebrate') {
+                  action.setLoop(THREE.LoopOnce);
+                  action.clampWhenFinished = true;
+                } else {
+                  action.setLoop(THREE.LoopRepeat);
+                }
+                const naturalSpeed = speedMap[key] || 0.90;
+                action.timeScale = naturalSpeed;
+                actions[key] = action;
+              }
+            } catch (e) {
+              console.warn('[AstraVRM] Could not load anim:', key, e);
+            }
+          }
+          console.log('[AstraVRM] All background actions ready:', Object.keys(actions));
+        })();
         window.isPetReady = true;
       } catch (err) {
         console.error('[AstraVRM] Initialization error:', err);
@@ -323,6 +437,11 @@
         return;
       }
 
+      const isDrum = (name === 'drumming' || (currentState === 'dance' && name === 'dance_2'));
+      drumStageGroup.visible = isDrum;
+      if (stickL) stickL.visible = isDrum;
+      if (stickR) stickR.visible = isDrum;
+
       nextAction.reset();
       const naturalSpeed = speedMap[name] || 0.90;
       nextAction.timeScale = naturalSpeed;
@@ -361,10 +480,21 @@
         targetRotationY = Math.PI;
       }
 
+      if (currentState !== 'dance') {
+        drumStageGroup.visible = false;
+        if (stickL) stickL.visible = false;
+        if (stickR) stickR.visible = false;
+      }
+
       if (currentState === 'dance') {
         currentVRM.expressionManager?.setValue('happy', 0.95);
         currentVRM.expressionManager?.setValue('relaxed', 0.2);
-        playAction('dance_2', 0.35);
+        targetRotationY = Math.PI; // Face directly forward behind the drum kit
+        if (actions['drumming']) {
+          playAction('drumming', 0.35);
+        } else {
+          playAction('dance_2', 0.35);
+        }
       } else if (currentState === 'picked_up' || currentState === 'falling') {
           currentVRM.expressionManager?.setValue('surprised', 1.0);
           playAction('picked_up', 0.2);
@@ -390,7 +520,6 @@
           currentVRM.expressionManager?.setValue('happy', 0.15);
           playAction('idle', 0.35);
         }
-      }
     };
 
     window.setFacing = (facing) => {
@@ -479,7 +608,6 @@
               hips.position.z = Math.sign(hips.position.z) * 0.45;
             }
           }
-        }
 
         // Smoothly interpolate rotation facing
         currentVRM.scene.rotation.y += (targetRotationY - currentVRM.scene.rotation.y) * 0.12;
