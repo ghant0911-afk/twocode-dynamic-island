@@ -3052,6 +3052,65 @@ class TwoCodeIsland(QWidget):
             pass
 
 
+def start_vrm_server():
+    vrm_dir = os.path.join(APP_DIR, "vrm_models")
+    if not os.path.exists(vrm_dir):
+        return
+
+    class VRMStaticHTTPHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass
+
+        def do_GET(self):
+            parsed = urllib.parse.urlparse(self.path)
+            rel = parsed.path.lstrip("/").replace("/", os.sep)
+            if not rel:
+                rel = "vrm_viewer.html"
+            target_path = os.path.abspath(os.path.join(vrm_dir, rel))
+            if not target_path.startswith(vrm_dir) or not os.path.exists(target_path):
+                self.send_error(404, "File Not Found")
+                return
+            if os.path.isdir(target_path):
+                target_path = os.path.join(target_path, "vrm_viewer.html")
+                if not os.path.exists(target_path):
+                    self.send_error(404, "Index Not Found")
+                    return
+
+            mime = "application/octet-stream"
+            if target_path.endswith(".html"):
+                mime = "text/html; charset=utf-8"
+            elif target_path.endswith(".js"):
+                mime = "application/javascript"
+            elif target_path.endswith(".json"):
+                mime = "application/json"
+            elif target_path.endswith(".css"):
+                mime = "text/css"
+            elif target_path.endswith(".vrm") or target_path.endswith(".vrma"):
+                mime = "model/gltf-binary"
+            elif target_path.endswith(".png"):
+                mime = "image/png"
+            elif target_path.endswith(".jpg"):
+                mime = "image/jpeg"
+
+            try:
+                with open(target_path, "rb") as f:
+                    content = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(len(content)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(content)
+            except Exception:
+                pass
+
+    try:
+        server = ReusableHTTPServer(("127.0.0.1", 8098), VRMStaticHTTPHandler)
+        server.serve_forever()
+    except Exception:
+        pass
+
+
 def start_http_server():
     port = 28282
     try:
@@ -3074,6 +3133,9 @@ def start_http_server():
 if __name__ == "__main__":
     server_thread = threading.Thread(target=start_http_server, daemon=True)
     server_thread.start()
+
+    vrm_thread = threading.Thread(target=start_vrm_server, daemon=True)
+    vrm_thread.start()
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
