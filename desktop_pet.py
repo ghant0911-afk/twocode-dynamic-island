@@ -129,13 +129,16 @@ class DesktopRoboPet(QWidget):
         super().__init__(parent)
         self.setWindowTitle("TwoCode Desktop Robo")
 
-        # Window Flags for desktop pet
+        # Window Flags for desktop pet: completely non-activating & never steals focus
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.Tool |
+            Qt.WindowType.WindowDoesNotAcceptFocus
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setMouseTracking(True)
 
         self.pet_size = size
@@ -154,6 +157,9 @@ class DesktopRoboPet(QWidget):
         if WEBENGINE_AVAILABLE:
             try:
                 self.vrm_view = QWebEngineView(self)
+                self.vrm_view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                if self.vrm_view.focusProxy():
+                    self.vrm_view.focusProxy().setFocusPolicy(Qt.FocusPolicy.NoFocus)
                 self.vrm_view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
                 self.vrm_view.setStyleSheet("background: transparent;")
                 self.vrm_view.page().setBackgroundColor(QColor(0, 0, 0, 0))
@@ -269,6 +275,19 @@ class DesktopRoboPet(QWidget):
         else:
             self.state = self.STATE_SIT
             self.ai_timer.setInterval(random.randint(4000, 7000))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            if hwnd:
+                GWL_EXSTYLE = -20
+                WS_EX_NOACTIVATE = 0x08000000
+                cur = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, cur | WS_EX_NOACTIVATE)
+        except Exception:
+            pass
 
     def setVisible(self, visible: bool):
         super().setVisible(visible)
