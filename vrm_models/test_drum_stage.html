@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <script async src="./lib/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./lib/three.module.js",
+        "three/addons/": "./lib/",
+        "@pixiv/three-vrm": "./lib/three-vrm.module.js",
+        "@pixiv/three-vrm-animation": "./lib/three-vrm-animation.module.js"
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; background: #1a1a24; overflow: hidden; }
+    #container { width: 600px; height: 600px; margin: auto; }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+  <script type="module">
+    import * as THREE from 'three';
+    window.THREE = THREE;
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { VRMLoaderPlugin } from '@pixiv/three-vrm';
+    import { loadMixamoAnimation } from './loadMixamoAnimation.js';
+
+    const container = document.getElementById('container');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 20);
+    // Elevated front view so user sees drummer, sticks, drums, pedals clearly
+    camera.position.set(0, 1.15, 2.3);
+    camera.lookAt(0, 0.55, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(600, 600);
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    container.appendChild(renderer.domElement);
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    keyLight.position.set(1.5, 3, 2.5);
+    scene.add(keyLight);
+    
+    const fillLight = new THREE.DirectionalLight(0x88bbff, 1.2);
+    fillLight.position.set(-2, 1.5, 1);
+    scene.add(fillLight);
+    
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+
+    window.isReady = false;
+
+    // Load Drum Kit
+    const gltfLoader = new GLTFLoader();
+    let drumKit = null;
+    gltfLoader.load('drum_kit.glb', (gltf) => {
+      drumKit = gltf.scene;
+      window.drumKit = drumKit;
+      drumKit.scale.set(0.68, 0.68, 0.68);
+      drumKit.position.set(0, 0.40, 0.48);
+      drumKit.rotation.y = 0;
+      scene.add(drumKit);
+    });
+
+    // Create Drum Stool (Seat)
+    const seatGroup = new THREE.Group();
+    const cushion = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.18, 0.08, 24),
+      new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.3 })
+    );
+    cushion.position.y = 0.45;
+    seatGroup.add(cushion);
+    const legMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.2 });
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.45, 16), legMat);
+    stem.position.y = 0.225;
+    seatGroup.add(stem);
+    seatGroup.position.set(0, 0, -0.05);
+    scene.add(seatGroup);
+
+    // Drumstick factory
+    function createStick() {
+      const stick = new THREE.Group();
+      const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.007, 0.012, 0.42, 16),
+        new THREE.MeshStandardMaterial({ color: 0xe0c8a0, roughness: 0.4 })
+      );
+      mesh.position.y = 0.12;
+      stick.add(mesh);
+      return stick;
+    }
+
+    const vrmLoader = new GLTFLoader();
+    vrmLoader.register(parser => new VRMLoaderPlugin(parser));
+
+    vrmLoader.load('Sendagaya_Shino.vrm', async (gltf) => {
+      const vrm = gltf.userData.vrm;
+      window.vrm = vrm;
+      scene.add(vrm.scene);
+      vrm.scene.rotation.y = Math.PI; // Face forward towards camera
+
+      // Attach drumsticks to hands (anatomically calibrated into fists)
+      const leftHand = vrm.humanoid.getNormalizedBoneNode('leftHand');
+      const rightHand = vrm.humanoid.getNormalizedBoneNode('rightHand');
+      if (leftHand) {
+        const stickL = createStick();
+        stickL.position.set(-0.070, -0.010, -0.020);
+        stickL.rotation.set(1.50, 0.20, 0.40);
+        leftHand.add(stickL);
+      }
+      if (rightHand) {
+        const stickR = createStick();
+        stickR.position.set(0.070, -0.010, -0.020);
+        stickR.rotation.set(1.50, -0.20, -0.40);
+        rightHand.add(stickR);
+      }
+
+      // Load Mixamo Drumming Animation
+      const clip = await loadMixamoAnimation('animations/Playing_Drums.fbx', vrm);
+      const mixer = new THREE.AnimationMixer(vrm.scene);
+      const action = mixer.clipAction(clip);
+      action.play();
+
+      window.isReady = true;
+
+      const clock = new THREE.Clock();
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        mixer.update(delta);
+        vrm.update(delta);
+        renderer.render(scene, camera);
+      }
+      animate();
+    });
+  </script>
+</body>
+</html>
