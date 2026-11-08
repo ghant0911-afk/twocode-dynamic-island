@@ -3053,16 +3053,16 @@ class TwoCodeIsland(QWidget):
 
 
 def start_http_server():
-    port = 28283
+    port = 28282
     try:
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
-                port = cfg.get("http_port", 28283)
+                port = cfg.get("http_port", 28282)
     except Exception:
         pass
 
-    for candidate in [port, 28283, 28284, 28285]:
+    for candidate in [port, 28282, 28283, 28284, 28285]:
         try:
             server = ReusableHTTPServer(("127.0.0.1", candidate), IslandAPIHandler)
             print(f"Unified Sandbox Island HTTP Daemon listening on port {candidate}")
