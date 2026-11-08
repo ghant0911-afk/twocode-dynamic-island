@@ -247,20 +247,24 @@ class DesktopRoboPet(QWidget):
             return
         self.has_headphones = is_playing
         if is_playing:
-            if self.state in [self.STATE_IDLE, self.STATE_SIT]:
+            if self.state in [self.STATE_IDLE, self.STATE_SIT, self.STATE_WALK]:
                 self.state = self.STATE_DANCE
-                self.dance_style = random.randint(0, 3)
-                self.dance_switch_timer = 0
+                self._sync_vrm_state()
         else:
-            # Honest emotions: Stop dancing immediately when music paused!
+            # Stop drumming immediately when music paused!
             if self.state == self.STATE_DANCE:
                 self.state = self.STATE_IDLE
+                self._sync_vrm_state()
 
     def set_forced_headphones(self, enabled: bool):
         self.forced_music = enabled
         self.has_headphones = enabled
-        if enabled and self.state == self.STATE_IDLE:
+        if enabled:
             self.state = self.STATE_DANCE
+        else:
+            if self.state == self.STATE_DANCE:
+                self.state = self.STATE_IDLE
+        self._sync_vrm_state()
 
     def _ai_decide_next_action(self):
         if self.state in [self.STATE_PICKED_UP, self.STATE_FALLING, self.STATE_CELEBRATE, self.STATE_HURT]:
@@ -622,15 +626,10 @@ class DesktopRoboPet(QWidget):
         act_wave.triggered.connect(self.react_to_click)
         menu.addAction(act_wave)
 
-        # Dance Action
-        act_dance = QAction("🕺 Танцевать под бит", self)
-        act_dance.triggered.connect(lambda: self._set_manual_state(self.STATE_DANCE))
-        menu.addAction(act_dance)
-
-        if self.character == "shino":
-            act_next_dance = QAction("🎵 Сменить стиль танца (Next Style)", self)
-            act_next_dance.triggered.connect(lambda: self.vrm_view.page().runJavaScript("window.nextDance && window.nextDance()") if self.vrm_view else None)
-            menu.addAction(act_next_dance)
+        # Drums Action (plays drums instead of dance)
+        act_drums = QAction("🥁 Играть на барабанах" if self.state != self.STATE_DANCE else "🛑 Закончить соло на барабанах", self)
+        act_drums.triggered.connect(lambda: self._set_manual_state(self.STATE_DANCE if self.state != self.STATE_DANCE else self.STATE_IDLE))
+        menu.addAction(act_drums)
 
         # Sit Action
         act_sit = QAction("🪑 Сесть отдохнуть", self)
