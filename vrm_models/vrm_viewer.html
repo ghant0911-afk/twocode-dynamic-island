@@ -248,6 +248,7 @@
         await playVrmaAnimation(currentAnimFile);
 
         loadingElem.style.display = 'none';
+        window.isModelReady = true;
       } catch (err) {
         console.error('Error loading VRM:', err);
         loadingElem.innerText = '❌ Ошибка загрузки модели';
@@ -255,6 +256,7 @@
     }
 
     async function playVrmaAnimation(animFile) {
+      window.isAnimReady = false;
       currentAnimFile = animFile;
       if (!currentVRM || !mixer) return;
 
@@ -283,11 +285,14 @@
           currentAction = nextAction;
         }
         loadingElem.style.display = 'none';
+        window.isAnimReady = true;
       } catch (e) {
         console.error('Error playing animation:', e);
         loadingElem.innerText = '❌ Ошибка анимации';
       }
     }
+
+    window.playVrmaAnimation = playVrmaAnimation;
 
     // Load initial model (Sendagaya Shino)
     loadModel('Sendagaya_Shino.vrm');
