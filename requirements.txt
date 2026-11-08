@@ -1,4 +1,9 @@
-PyQt6>=6.4.0
+PyQt6>=6.5.0
+winsdk>=1.0.0b9
 psutil>=5.9.0
 pywin32>=306
 Pillow>=9.0.0
+pygame>=2.5.0
+sounddevice>=0.4.6
+SpeechRecognition>=3.10.0
+numpy>=1.24.0
