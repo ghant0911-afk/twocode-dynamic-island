@@ -1,0 +1,1561 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Astra 3D Drum Studio & Motion Animator Pro</title>
+  <script async src="./lib/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./lib/three.module.js",
+        "three/addons/": "./lib/",
+        "@pixiv/three-vrm": "./lib/three-vrm.module.js",
+        "@pixiv/three-vrm-animation": "./lib/three-vrm-animation.module.js"
+      }
+    }
+  </script>
+  <style>
+    :root {
+      --bg: #0B0D14;
+      --card-bg: rgba(16, 20, 30, 0.92);
+      --card-border: rgba(255, 255, 255, 0.12);
+      --accent: #F59E0B;
+      --accent-hover: #D97706;
+      --red-rec: #EF4444;
+      --blue: #3B82F6;
+      --text: #F3F4F6;
+      --muted: #9CA3AF;
+      --success: #10B981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    #viewport {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      cursor: grab;
+    }
+    #viewport:active { cursor: grabbing; }
+
+    /* Top Navigation Bar */
+    .top-bar {
+      position: absolute;
+      top: 12px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 20;
+    }
+    .badge-card {
+      pointer-events: auto;
+      background: var(--card-bg);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+    .badge-card h1 {
+      font-size: 13px;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge-tag {
+      background: rgba(245, 158, 11, 0.2);
+      color: var(--accent);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .rec-badge {
+      display: none;
+      background: rgba(239, 68, 68, 0.25);
+      color: #EF4444;
+      border: 1px solid rgba(239, 68, 68, 0.6);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 900;
+      animation: pulse 1s infinite alternate;
+    }
+    @keyframes pulse { from { opacity: 0.6; } to { opacity: 1; } }
+
+    .quick-cams {
+      display: flex;
+      gap: 6px;
+      pointer-events: auto;
+    }
+    .btn-cam {
+      background: var(--card-bg);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-cam:hover {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* Left Floating Control Panel */
+    .left-panel {
+      position: absolute;
+      top: 66px;
+      left: 16px;
+      width: 360px;
+      max-height: calc(100vh - 165px);
+      overflow-y: auto;
+      background: var(--card-bg);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 14px;
+      z-index: 20;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.65);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .left-panel::-webkit-scrollbar { width: 4px; }
+    .left-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+    /* Target Selection Tree */
+    .target-tree {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .tree-title {
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .tree-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+    }
+    .btn-node {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #D1D5DB;
+      padding: 7px 8px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-node:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+    }
+    .btn-node.active {
+      background: var(--accent);
+      color: #000;
+      font-weight: 800;
+      border-color: var(--accent);
+      box-shadow: 0 2px 10px rgba(245, 158, 11, 0.35);
+    }
+
+    /* Transform Mode Bar */
+    .gizmo-bar {
+      display: flex;
+      gap: 4px;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 4px;
+      border-radius: 10px;
+    }
+    .btn-gizmo {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      padding: 6px 4px;
+      font-size: 10px;
+      font-weight: 800;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .btn-gizmo.active {
+      background: var(--accent);
+      color: #000;
+    }
+
+    /* Sliders styling */
+    .slider-card {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.025);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 6px 8px;
+      border-radius: 8px;
+    }
+    .slider-head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #D1D5DB;
+    }
+    .slider-head .val {
+      font-family: monospace;
+      font-weight: 700;
+      color: #fff;
+    }
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    input[type=range] {
+      flex: 1;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      outline: none;
+      accent-color: var(--accent);
+    }
+    .step-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #E5E7EB;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 2px 5px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: monospace;
+    }
+    .step-btn:hover { background: rgba(255, 255, 255, 0.2); }
+
+    /* Right Floating Library Panel */
+    .right-panel {
+      position: absolute;
+      top: 66px;
+      right: 16px;
+      width: 320px;
+      max-height: calc(100vh - 165px);
+      overflow-y: auto;
+      background: var(--card-bg);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 14px;
+      z-index: 20;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.65);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .right-panel::-webkit-scrollbar { width: 4px; }
+    .right-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+    .pose-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #E5E7EB;
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .pose-btn:hover {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* Bottom Multi-Track Animation Dock */
+    .bottom-dock {
+      position: absolute;
+      bottom: 14px;
+      left: 16px;
+      right: 16px;
+      height: 78px;
+      background: var(--card-bg);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 10px 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      z-index: 20;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.7);
+    }
+    .dock-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .btn-transport {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 900;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-transport:hover { background: #fff; }
+    .btn-record {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.5);
+      color: #EF4444;
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-record:hover {
+      background: #EF4444;
+      color: #fff;
+    }
+    .btn-record.recording {
+      background: #EF4444;
+      color: #fff;
+      animation: pulse 0.8s infinite alternate;
+    }
+    .btn-keyframe {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #E5E7EB;
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-keyframe:hover {
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
+    }
+    .timeline-track-wrap {
+      position: relative;
+      width: 100%;
+      height: 24px;
+      display: flex;
+      align-items: center;
+    }
+    .timeline-slider {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .keyframe-marker {
+      position: absolute;
+      top: 4px;
+      width: 8px;
+      height: 8px;
+      background: var(--accent);
+      border-radius: 50%;
+      transform: translateX(-50%);
+      pointer-events: none;
+      box-shadow: 0 0 6px var(--accent);
+    }
+
+    /* Action Buttons in Panels */
+    .btn-primary {
+      background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+      color: #000;
+      border: none;
+      padding: 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+      transition: all 0.2s;
+    }
+    .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #D1D5DB;
+      padding: 8px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn-secondary:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+
+    /* Toast */
+    #toast {
+      position: absolute;
+      top: 70px;
+      right: 24px;
+      background: #10B981;
+      color: #000;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 10px 18px;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+      display: none;
+      z-index: 100;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <div id="viewport"></div>
+
+  <!-- Top Navigation & Preset Views -->
+  <div class="top-bar">
+    <div class="badge-card">
+      <h1>🥁 Астра · Студия барабанной анимации и поз</h1>
+      <span class="badge-tag">ANIMATION STUDIO</span>
+      <span class="rec-badge" id="recBadge">🔴 REC LIVE</span>
+      <span style="font-size: 11px; color: var(--muted); margin-left: 6px;">ЛКМ — вращать | ПКМ — сдвиг | Колесо — зум</span>
+    </div>
+    <div class="quick-cams">
+      <button class="btn-cam" id="camFull">🎯 Вся сцена</button>
+      <button class="btn-cam" id="camHands">👐 Руки и установка</button>
+      <button class="btn-cam" id="camTop">🥁 Сверху на барабаны</button>
+      <button class="btn-cam" id="camSide">📐 Сбоку</button>
+      <button class="btn-cam" id="camLeft">👈 Слева</button>
+      <button class="btn-cam" id="camRight">👉 Справа</button>
+    </div>
+  </div>
+
+  <!-- Left Floating Inspector & Hierarchy Panel -->
+  <div class="left-panel">
+    <!-- Object Selection -->
+    <div class="target-tree">
+      <div class="tree-title">
+        <span>Элемент для позирования / движения</span>
+        <span id="curNodeLabel" style="color: var(--accent); font-family: monospace;">drumKit</span>
+      </div>
+      
+      <!-- Drum Kit & Torso -->
+      <div class="tree-grid" style="grid-template-columns: 1fr 1fr;">
+        <button class="btn-node active" id="node_drumKit">🥁 Барабанная установка</button>
+        <button class="btn-node" id="node_chest">🧍 Наклон корпуса</button>
+      </div>
+
+      <!-- Left Arm Hierarchy -->
+      <div class="tree-title" style="margin-top: 4px;"><span>👈 Левая рука (Snare Drum)</span></div>
+      <div class="tree-grid">
+        <button class="btn-node" id="node_leftUpperArm">💪 Плечо (Upper)</button>
+        <button class="btn-node" id="node_leftLowerArm">💪 Локоть (Forearm)</button>
+        <button class="btn-node" id="node_leftHand">✋ Кисть (Wrist)</button>
+        <button class="btn-node" id="node_stickL">🥢 Палочка левая</button>
+      </div>
+
+      <!-- Right Arm Hierarchy -->
+      <div class="tree-title" style="margin-top: 4px;"><span>👉 Правая рука (Hi-Hat / Cymbal)</span></div>
+      <div class="tree-grid">
+        <button class="btn-node" id="node_rightUpperArm">💪 Плечо (Upper)</button>
+        <button class="btn-node" id="node_rightLowerArm">💪 Локоть (Forearm)</button>
+        <button class="btn-node" id="node_rightHand">✋ Кисть (Wrist)</button>
+        <button class="btn-node" id="node_stickR">🥢 Палочка правая</button>
+      </div>
+    </div>
+
+    <!-- Transform Controls Mode -->
+    <div class="gizmo-bar">
+      <button class="btn-gizmo active" id="modeTranslate">✋ Сдвиг (W)</button>
+      <button class="btn-gizmo" id="modeRotate">🔄 Вращение (E)</button>
+      <button class="btn-gizmo" id="modeScale">📐 Масштаб (S)</button>
+      <button class="btn-gizmo" id="modeSpace">✋ Local</button>
+    </div>
+
+    <!-- Dynamic Sliders for Active Target -->
+    <div id="dynamicSliders" style="display: flex; flex-direction: column; gap: 6px;">
+      <!-- Populated dynamically via JS depending on bone vs drum kit -->
+    </div>
+
+    <!-- Export & Copy Actions -->
+    <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+      <button class="btn-primary" id="btnExportCode">
+        <span>📋 Скопировать готовую анимацию для чата</span>
+      </button>
+      <button class="btn-secondary" id="btnDownloadJson">
+        <span>💾 Скачать JSON анимации</span>
+      </button>
+      <button class="btn-secondary" id="btnResetToDrumPose">
+        <span>🔄 Сбросить в базовую стойку</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Right Floating Preset Poses & Groove Library -->
+  <div class="right-panel">
+    <div class="tree-title">
+      <span>Барабанные позы (Клик на кадре)</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <button class="pose-btn" onclick="applyPosePreset('ready')">
+        <span>🥁 Стойка готовности (Ready)</span>
+        <span style="font-size: 10px; color: var(--muted);">Обе руки у малого</span>
+      </button>
+      <button class="pose-btn" onclick="applyPosePreset('snare_hit_L')">
+        <span>💥 Удар левой (Snare Strike)</span>
+        <span style="font-size: 10px; color: var(--accent);">Пластик барабана</span>
+      </button>
+      <button class="pose-btn" onclick="applyPosePreset('hihat_hit_R')">
+        <span>💥 Удар правой (Hi-Hat Strike)</span>
+        <span style="font-size: 10px; color: var(--accent);">Тарелка справа</span>
+      </button>
+      <button class="pose-btn" onclick="applyPosePreset('crash_both')">
+        <span>💥 Двойной удар (Crash Both)</span>
+        <span style="font-size: 10px; color: var(--accent);">Акцент / Крэш</span>
+      </button>
+      <button class="pose-btn" onclick="applyPosePreset('windup_L')">
+        <span>✨ Замах левой руки (Windup)</span>
+        <span style="font-size: 10px; color: var(--muted);">Подъем вверх</span>
+      </button>
+      <button class="pose-btn" onclick="applyPosePreset('windup_R')">
+        <span>✨ Замах правой руки (Windup)</span>
+        <span style="font-size: 10px; color: var(--muted);">Подъем вверх</span>
+      </button>
+    </div>
+
+    <div class="tree-title" style="margin-top: 6px;">
+      <span>Шаблоны ритмических партий</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <button class="pose-btn" onclick="generateGroove('beat8')">
+        <span>⚡ Классический ритм 8-Beat</span>
+        <span style="font-size: 10px; color: var(--accent);">Хэт + Малый луп</span>
+      </button>
+      <button class="pose-btn" onclick="generateGroove('roll')">
+        <span>🥁 Барабанная дробь (Roll Fill)</span>
+        <span style="font-size: 10px; color: var(--accent);">Быстрое соло</span>
+      </button>
+      <button class="pose-btn" onclick="clearAllKeyframes()">
+        <span>🧹 Очистить все кадры дорожки</span>
+        <span style="font-size: 10px; color: #EF4444;">Сброс</span>
+      </button>
+    </div>
+
+    <div class="tree-title" style="margin-top: 6px;">
+      <span>Параметры барабанной установки</span>
+    </div>
+    <div id="drumKitSummary" style="font-size: 11px; font-family: monospace; color: var(--muted); background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px; line-height: 1.5;">
+      pos: [0, 0.40, 0.48]<br>
+      rotY: 0.0°<br>
+      scale: 0.68
+    </div>
+  </div>
+
+  <!-- Bottom Timeline & Recorder Dock -->
+  <div class="bottom-dock">
+    <div class="dock-controls">
+      <button class="btn-transport" id="btnPlayPause">▶ Старт</button>
+      <button class="btn-record" id="btnRecord">🔴 Живая запись (Overdub)</button>
+      <select id="recSpeed" style="background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 5px 8px; border-radius: 8px; font-size: 10px; font-weight: 700; outline: none; cursor: pointer;">
+        <option value="1.0">Скорость записи: 1.0x</option>
+        <option value="0.5" selected>Скорость записи: 0.5x (Замедленно)</option>
+        <option value="0.25">Скорость записи: 0.25x (Ювелирно)</option>
+      </select>
+      <button class="btn-keyframe" id="btnAddKeyframe">📸 Зафиксировать кадр</button>
+      <button class="btn-keyframe" id="btnDelKeyframe" style="color: #F87171;">❌ Удалить кадр</button>
+      
+      <div style="flex: 1;"></div>
+      <div style="font-size: 11px; font-weight: 800; font-family: monospace; color: var(--accent);" id="timeDisplay">0.00s / 1.60s</div>
+    </div>
+
+    <div class="timeline-track-wrap" id="trackWrap">
+      <input type="range" class="timeline-slider" id="timelineSlider" min="0" max="1.6" step="0.01" value="0">
+      <div id="markerContainer" style="position: absolute; left: 0; right: 0; height: 100%; pointer-events: none;"></div>
+    </div>
+  </div>
+
+  <div id="toast">✅ Данные скопированы!</div>
+
+  <!-- Main 3D Studio & Kinematics Engine -->
+  <script type="module">
+    import * as THREE from 'three';
+    window.THREE = THREE;
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { TransformControls } from 'three/addons/controls/TransformControls.js';
+    import { VRMLoaderPlugin } from '@pixiv/three-vrm';
+
+    // -------------------------------------------------------------------------
+    // 1. Scene, Camera, Lighting & Renderer Setup
+    // -------------------------------------------------------------------------
+    const container = document.getElementById('viewport');
+    const scene = new THREE.Scene();
+    window.scene = scene;
+
+    const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 20);
+    window.camera = camera;
+    camera.position.set(0, 1.15, 2.3);
+    const cameraTarget = new THREE.Vector3(0, 0.65, 0);
+    camera.lookAt(cameraTarget);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    window.renderer = renderer;
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    container.appendChild(renderer.domElement);
+
+    // Studio lighting setup
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.6);
+    keyLight.position.set(2, 3.5, 2.5);
+    scene.add(keyLight);
+
+    const rimLight = new THREE.DirectionalLight(0x88bbff, 1.8);
+    rimLight.position.set(-2.5, 2, -1.5);
+    scene.add(rimLight);
+
+    const warmFill = new THREE.DirectionalLight(0xffeedd, 1.0);
+    warmFill.position.set(-1.5, 1, 2);
+    scene.add(warmFill);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 1.3));
+
+    // -------------------------------------------------------------------------
+    // 2. TransformControls Gizmo (Drag in 3D directly on joints & drums)
+    // -------------------------------------------------------------------------
+    const transformControl = new TransformControls(camera, renderer.domElement);
+    window.transformControl = transformControl;
+    transformControl.size = 0.75;
+    transformControl.setSpace('local');
+    scene.add(transformControl);
+
+    let isGizmoDragging = false;
+    transformControl.addEventListener('dragging-changed', (event) => {
+      isGizmoDragging = event.value;
+      if (isGizmoDragging && isPlaying && !isRecording) {
+        pausePlayback();
+      }
+    });
+
+    // -------------------------------------------------------------------------
+    // 3. Smooth Orbit Camera Controller
+    // -------------------------------------------------------------------------
+    let isDragging = false;
+    let dragMode = 'rotate';
+    let prevMouseX = 0;
+    let prevMouseY = 0;
+    let spherical = { radius: 2.2, theta: 0, phi: 1.35 };
+
+    function updateCameraPos() {
+      spherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, spherical.phi));
+      spherical.radius = Math.max(0.35, Math.min(6.0, spherical.radius));
+      camera.position.x = cameraTarget.x + spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+      camera.position.y = cameraTarget.y + spherical.radius * Math.cos(spherical.phi);
+      camera.position.z = cameraTarget.z + spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+      camera.lookAt(cameraTarget);
+    }
+
+    container.addEventListener('pointerdown', (e) => {
+      if (transformControl && (transformControl.axis !== null || isGizmoDragging)) return;
+      isDragging = true;
+      dragMode = (e.button === 2) ? 'pan' : 'rotate';
+      prevMouseX = e.clientX;
+      prevMouseY = e.clientY;
+    });
+
+    window.addEventListener('pointerup', () => { isDragging = false; });
+    container.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    window.addEventListener('pointermove', (e) => {
+      if (!isDragging || isGizmoDragging) return;
+      const dx = e.clientX - prevMouseX;
+      const dy = e.clientY - prevMouseY;
+      prevMouseX = e.clientX;
+      prevMouseY = e.clientY;
+
+      if (dragMode === 'rotate') {
+        spherical.theta -= dx * 0.006;
+        spherical.phi -= dy * 0.006;
+      } else {
+        const right = new THREE.Vector3().crossVectors(camera.up, camera.getWorldDirection(new THREE.Vector3())).negate().normalize();
+        const up = camera.up.clone().normalize();
+        cameraTarget.addScaledVector(right, -dx * 0.002 * (spherical.radius / 2));
+        cameraTarget.addScaledVector(up, dy * 0.002 * (spherical.radius / 2));
+      }
+      updateCameraPos();
+    });
+
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      spherical.radius += e.deltaY * 0.0015;
+      updateCameraPos();
+    }, { passive: false });
+
+    // Camera Presets
+    document.getElementById('camFull').onclick = () => {
+      cameraTarget.set(0, 0.65, 0);
+      spherical = { radius: 2.2, theta: 0, phi: 1.35 };
+      updateCameraPos();
+    };
+    document.getElementById('camHands').onclick = () => {
+      cameraTarget.set(0.0, 0.68, 0.25);
+      spherical = { radius: 0.95, theta: 0, phi: 1.30 };
+      updateCameraPos();
+    };
+    document.getElementById('camTop').onclick = () => {
+      cameraTarget.set(0, 0.55, 0.25);
+      spherical = { radius: 1.6, theta: 0, phi: 0.25 };
+      updateCameraPos();
+    };
+    document.getElementById('camSide').onclick = () => {
+      cameraTarget.set(0, 0.65, 0.1);
+      spherical = { radius: 1.8, theta: Math.PI / 2, phi: 1.35 };
+      updateCameraPos();
+    };
+    document.getElementById('camLeft').onclick = () => {
+      cameraTarget.set(-0.2, 0.70, 0.15);
+      spherical = { radius: 0.85, theta: -0.4, phi: 1.35 };
+      updateCameraPos();
+    };
+    document.getElementById('camRight').onclick = () => {
+      cameraTarget.set(0.2, 0.70, 0.15);
+      spherical = { radius: 0.85, theta: 0.4, phi: 1.35 };
+      updateCameraPos();
+    };
+
+    // -------------------------------------------------------------------------
+    // 4. Drum Kit & Stool
+    // -------------------------------------------------------------------------
+    const drumStageGroup = new THREE.Group();
+    scene.add(drumStageGroup);
+
+    // Stool
+    const stoolGroup = new THREE.Group();
+    const cushion = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.18, 0.08, 24),
+      new THREE.MeshStandardMaterial({ color: 0x1f1f23, roughness: 0.35 })
+    );
+    cushion.position.y = 0.45;
+    stoolGroup.add(cushion);
+    const stem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.02, 0.02, 0.45, 16),
+      new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.85, roughness: 0.2 })
+    );
+    stem.position.y = 0.225;
+    stoolGroup.add(stem);
+    stoolGroup.position.set(0, 0, -0.05);
+    drumStageGroup.add(stoolGroup);
+
+    // Drum Kit glTF
+    let drumKit = null;
+    window.drumKit = null;
+    const drumParams = {
+      pos: { x: 0, y: 0.40, z: 0.48 },
+      rotY: 0.0,
+      scale: 0.68
+    };
+
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.load('drum_kit.glb', (gltf) => {
+      drumKit = gltf.scene;
+      window.drumKit = drumKit;
+      drumKit.name = 'drumKit';
+      drumStageGroup.add(drumKit);
+      applyDrumParams();
+      updateDrumSummary();
+      // Attach to drumKit by default so user can position it immediately!
+      selectTargetNode('drumKit');
+    });
+
+    function applyDrumParams() {
+      if (!drumKit) return;
+      drumKit.position.set(drumParams.pos.x, drumParams.pos.y, drumParams.pos.z);
+      drumKit.rotation.y = THREE.MathUtils.degToRad(drumParams.rotY);
+      drumKit.scale.set(drumParams.scale, drumParams.scale, drumParams.scale);
+    }
+
+    function updateDrumSummary() {
+      const el = document.getElementById('drumKitSummary');
+      if (el) {
+        el.innerHTML = `pos: [${drumParams.pos.x.toFixed(3)}, ${drumParams.pos.y.toFixed(3)}, ${drumParams.pos.z.toFixed(3)}]<br>` +
+          `rotY: ${drumParams.rotY.toFixed(1)}°<br>` +
+          `scale: ${drumParams.scale.toFixed(2)}`;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Authentic Drumstick Factory & User-Calibrated Sticks
+    // -------------------------------------------------------------------------
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0xedd6af, roughness: 0.35, metalness: 0.05 });
+    const brandMat = new THREE.MeshBasicMaterial({ color: 0x242424 });
+
+    function createStick(name) {
+      const grp = new THREE.Group();
+      grp.name = name;
+
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0048, 0.0070, 0.32, 16), woodMat);
+      shaft.position.y = 0.16;
+      grp.add(shaft);
+
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.0062, 16, 16), woodMat);
+      tip.position.y = 0.325;
+      tip.scale.set(1.0, 1.4, 1.0);
+      grp.add(tip);
+
+      const buttShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0070, 0.0072, 0.07, 16), woodMat);
+      buttShaft.position.y = -0.035;
+      grp.add(buttShaft);
+
+      const buttCap = new THREE.Mesh(new THREE.SphereGeometry(0.0071, 14, 14), woodMat);
+      buttCap.position.y = -0.07;
+      grp.add(buttCap);
+
+      const brandBand = new THREE.Mesh(new THREE.CylinderGeometry(0.00705, 0.00705, 0.012, 16), brandMat);
+      brandBand.position.y = 0.025;
+      grp.add(brandBand);
+
+      return grp;
+    }
+
+    let stickL = null;
+    let stickR = null;
+
+    // User's exact locked coordinates from previous calibration step
+    const stickParams = {
+      stickL: {
+        pos: [-0.0562, -0.0080, -0.0015],
+        rot: [-0.262, -1.518, 1.267]
+      },
+      stickR: {
+        pos: [0.0487, -0.0043, -0.0063],
+        rot: [-1.597, -0.044, -0.262]
+      }
+    };
+
+    // -------------------------------------------------------------------------
+    // 6. Base Drummer Posture Preset (Natural seating and arm bend)
+    // -------------------------------------------------------------------------
+    const baseDrumPose = {
+      chest: { rot: [10.0, 0.0, 0.0] },
+      leftUpperArm: { rot: [42.0, -18.0, 38.0] },
+      leftLowerArm: { rot: [22.0, -28.0, -78.0] },
+      leftHand: { rot: [-12.0, -8.0, 12.0] },
+      rightUpperArm: { rot: [38.0, 22.0, -35.0] },
+      rightLowerArm: { rot: [20.0, 25.0, 75.0] },
+      rightHand: { rot: [-15.0, 10.0, -8.0] }
+    };
+
+    // -------------------------------------------------------------------------
+    // 7. Multi-Track Animation Engine (Keyframes & Slerp Interpolator)
+    // -------------------------------------------------------------------------
+    const ANIM_DURATION = 1.60; // 1.6s loop
+    window.ANIM_DURATION = ANIM_DURATION;
+    let currentTime = 0.0;
+    let isPlaying = false;
+    let isRecording = false;
+
+    // Tracks: boneName -> Array of { time, rotDeg: [x,y,z], q: [x,y,z,w] }
+    const recordedTracks = {};
+    const animatedBoneNames = [
+      'chest',
+      'leftUpperArm', 'leftLowerArm', 'leftHand',
+      'rightUpperArm', 'rightLowerArm', 'rightHand'
+    ];
+
+    animatedBoneNames.forEach(b => { recordedTracks[b] = []; });
+
+    function initDefaultTracks() {
+      // Create initial ready posture at t=0.0 and t=1.6 (loop closure)
+      animatedBoneNames.forEach(name => {
+        const p = baseDrumPose[name];
+        if (p) {
+          const eul = new THREE.Euler(
+            THREE.MathUtils.degToRad(p.rot[0]),
+            THREE.MathUtils.degToRad(p.rot[1]),
+            THREE.MathUtils.degToRad(p.rot[2]),
+            'XYZ'
+          );
+          const q = new THREE.Quaternion().setFromEuler(eul);
+          recordedTracks[name] = [
+            { time: 0.0, rotDeg: [...p.rot], q: q.toArray() },
+            { time: ANIM_DURATION, rotDeg: [...p.rot], q: q.toArray() }
+          ];
+        }
+      });
+      // Add a couple default beats so there's an immediate rhythm to see!
+      // Hit left on snare at 0.4s and 1.2s
+      setPoseAtTime('snare_hit_L', 0.40);
+      setPoseAtTime('hihat_hit_R', 0.80);
+      setPoseAtTime('snare_hit_L', 1.20);
+    }
+
+    function sampleTrack(track, t) {
+      if (!track || track.length === 0) return null;
+      if (track.length === 1) return track[0];
+
+      // Sort by time
+      track.sort((a, b) => a.time - b.time);
+
+      if (t <= track[0].time) return track[0];
+      if (t >= track[track.length - 1].time) return track[track.length - 1];
+
+      let i0 = 0;
+      for (let i = 0; i < track.length - 1; i++) {
+        if (track[i].time <= t && t <= track[i + 1].time) {
+          i0 = i;
+          break;
+        }
+      }
+      const k0 = track[i0];
+      const k1 = track[i0 + 1];
+      const alpha = (t - k0.time) / (k1.time - k0.time);
+
+      const q0 = new THREE.Quaternion().fromArray(k0.q);
+      const q1 = new THREE.Quaternion().fromArray(k1.q);
+      const qInterp = q0.slerp(q1, alpha);
+
+      const eulInterp = new THREE.Euler().setFromQuaternion(qInterp, 'XYZ');
+      return {
+        q: qInterp.toArray(),
+        rotDeg: [
+          THREE.MathUtils.radToDeg(eulInterp.x),
+          THREE.MathUtils.radToDeg(eulInterp.y),
+          THREE.MathUtils.radToDeg(eulInterp.z)
+        ]
+      };
+    }
+
+    function applyPoseAtTime(t) {
+      if (!currentVRM) return;
+      animatedBoneNames.forEach(boneName => {
+        const node = currentVRM.humanoid.getNormalizedBoneNode(boneName);
+        if (node) {
+          const sample = sampleTrack(recordedTracks[boneName], t);
+          if (sample) {
+            node.quaternion.fromArray(sample.q);
+          }
+        }
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // 8. Active Target Selection (Joints vs Drum Kit)
+    // -------------------------------------------------------------------------
+    let currentTargetName = 'drumKit';
+    let currentTargetNode = null;
+
+    function selectTargetNode(name) {
+      currentTargetName = name;
+      document.getElementById('curNodeLabel').textContent = name;
+
+      // Update tree buttons
+      document.querySelectorAll('.btn-node').forEach(b => {
+        b.classList.toggle('active', b.id === `node_${name}`);
+      });
+
+      if (name === 'drumKit') {
+        currentTargetNode = drumKit;
+        setGizmoMode('translate');
+      } else if (name === 'stickL') {
+        currentTargetNode = stickL;
+        setGizmoMode('translate');
+      } else if (name === 'stickR') {
+        currentTargetNode = stickR;
+        setGizmoMode('translate');
+      } else if (currentVRM) {
+        currentTargetNode = currentVRM.humanoid.getNormalizedBoneNode(name);
+        setGizmoMode('rotate');
+      }
+
+      if (currentTargetNode) {
+        transformControl.attach(currentTargetNode);
+      }
+      renderSlidersForTarget();
+    }
+
+    // Attach click events for tree buttons
+    [
+      'drumKit', 'chest',
+      'leftUpperArm', 'leftLowerArm', 'leftHand', 'stickL',
+      'rightUpperArm', 'rightLowerArm', 'rightHand', 'stickR'
+    ].forEach(name => {
+      const btn = document.getElementById(`node_${name}`);
+      if (btn) btn.onclick = () => selectTargetNode(name);
+    });
+
+    // -------------------------------------------------------------------------
+    // 9. Dynamic Sliders Builder & Two-Way Sync
+    // -------------------------------------------------------------------------
+    function renderSlidersForTarget() {
+      const container = document.getElementById('dynamicSliders');
+      container.innerHTML = '';
+
+      if (currentTargetName === 'drumKit') {
+        // Sliders for Drum Kit: X, Y, Z, RotY, Scale
+        container.appendChild(createSliderRow('X (Влево / Вправо)', 'drumX', -0.6, 0.6, 0.005, drumParams.pos.x, 'm', (v) => {
+          drumParams.pos.x = v; applyDrumParams(); updateDrumSummary();
+        }));
+        container.appendChild(createSliderRow('Y (Высота)', 'drumY', 0.1, 0.9, 0.005, drumParams.pos.y, 'm', (v) => {
+          drumParams.pos.y = v; applyDrumParams(); updateDrumSummary();
+        }));
+        container.appendChild(createSliderRow('Z (Ближе / Дальше)', 'drumZ', 0.1, 1.0, 0.005, drumParams.pos.z, 'm', (v) => {
+          drumParams.pos.z = v; applyDrumParams(); updateDrumSummary();
+        }));
+        container.appendChild(createSliderRow('Поворот вокруг Y', 'drumRotY', -90, 90, 0.5, drumParams.rotY, '°', (v) => {
+          drumParams.rotY = v; applyDrumParams(); updateDrumSummary();
+        }));
+        container.appendChild(createSliderRow('Масштаб (Scale)', 'drumScale', 0.4, 1.2, 0.01, drumParams.scale, 'x', (v) => {
+          drumParams.scale = v; applyDrumParams(); updateDrumSummary();
+        }));
+      } else if (currentTargetName === 'stickL' || currentTargetName === 'stickR') {
+        const p = stickParams[currentTargetName];
+        container.appendChild(createSliderRow('Сдвиг X', 'stkX', -0.15, 0.15, 0.001, p.pos[0], 'm', (v) => {
+          p.pos[0] = v; if (currentTargetNode) currentTargetNode.position.x = v;
+        }));
+        container.appendChild(createSliderRow('Сдвиг Y', 'stkY', -0.10, 0.10, 0.001, p.pos[1], 'm', (v) => {
+          p.pos[1] = v; if (currentTargetNode) currentTargetNode.position.y = v;
+        }));
+        container.appendChild(createSliderRow('Сдвиг Z', 'stkZ', -0.10, 0.10, 0.001, p.pos[2], 'm', (v) => {
+          p.pos[2] = v; if (currentTargetNode) currentTargetNode.position.z = v;
+        }));
+      } else {
+        // It's a humanoid bone node (Euler Pitch, Yaw, Roll)
+        let curDeg = [0, 0, 0];
+        if (currentTargetNode) {
+          curDeg = [
+            THREE.MathUtils.radToDeg(currentTargetNode.rotation.x),
+            THREE.MathUtils.radToDeg(currentTargetNode.rotation.y),
+            THREE.MathUtils.radToDeg(currentTargetNode.rotation.z)
+          ];
+        }
+        container.appendChild(createSliderRow('Pitch (Наклон X)', 'boneRotX', -180, 180, 0.5, curDeg[0], '°', (v) => {
+          if (currentTargetNode) currentTargetNode.rotation.x = THREE.MathUtils.degToRad(v);
+          recordKeyframeIfActive();
+        }));
+        container.appendChild(createSliderRow('Yaw (Поворот Y)', 'boneRotY', -180, 180, 0.5, curDeg[1], '°', (v) => {
+          if (currentTargetNode) currentTargetNode.rotation.y = THREE.MathUtils.degToRad(v);
+          recordKeyframeIfActive();
+        }));
+        container.appendChild(createSliderRow('Roll (Крен Z)', 'boneRotZ', -180, 180, 0.5, curDeg[2], '°', (v) => {
+          if (currentTargetNode) currentTargetNode.rotation.z = THREE.MathUtils.degToRad(v);
+          recordKeyframeIfActive();
+        }));
+      }
+    }
+
+    function createSliderRow(label, id, min, max, step, initialVal, unit, onChange) {
+      const card = document.createElement('div');
+      card.className = 'slider-card';
+      card.innerHTML = `
+        <div class="slider-head">
+          <span>${label}</span>
+          <span class="val" id="val_${id}">${initialVal.toFixed(unit === '°' ? 1 : 3)}${unit}</span>
+        </div>
+        <div class="slider-row">
+          <input type="range" id="input_${id}" min="${min}" max="${max}" step="${step}" value="${initialVal}">
+          <button class="step-btn" id="sub_${id}">-1</button>
+          <button class="step-btn" id="add_${id}">+1</button>
+        </div>
+      `;
+      const input = card.querySelector(`#input_${id}`);
+      const valLabel = card.querySelector(`#val_${id}`);
+      input.oninput = () => {
+        const val = parseFloat(input.value);
+        valLabel.textContent = `${val.toFixed(unit === '°' ? 1 : 3)}${unit}`;
+        onChange(val);
+      };
+      card.querySelector(`#sub_${id}`).onclick = () => {
+        const stepAmt = (unit === '°') ? 1.0 : (step * 5);
+        input.value = (parseFloat(input.value) - stepAmt).toFixed(3);
+        input.dispatchEvent(new Event('input'));
+      };
+      card.querySelector(`#add_${id}`).onclick = () => {
+        const stepAmt = (unit === '°') ? 1.0 : (step * 5);
+        input.value = (parseFloat(input.value) + stepAmt).toFixed(3);
+        input.dispatchEvent(new Event('input'));
+      };
+      return card;
+    }
+
+    // Two-way sync when dragging 3D Gizmo directly
+    transformControl.addEventListener('change', () => {
+      if (!isGizmoDragging || !currentTargetNode) return;
+
+      if (currentTargetName === 'drumKit') {
+        drumParams.pos.x = drumKit.position.x;
+        drumParams.pos.y = drumKit.position.y;
+        drumParams.pos.z = drumKit.position.z;
+        drumParams.rotY = THREE.MathUtils.radToDeg(drumKit.rotation.y);
+        drumParams.scale = drumKit.scale.x;
+        renderSlidersForTarget();
+        updateDrumSummary();
+      } else if (animatedBoneNames.includes(currentTargetName)) {
+        renderSlidersForTarget();
+        if (isRecording) {
+          // Record live at current time!
+          recordCurrentBonePose(currentTargetName, currentTime);
+        }
+      }
+    });
+
+    // Gizmo Modes
+    const btnModeTranslate = document.getElementById('modeTranslate');
+    const btnModeRotate = document.getElementById('modeRotate');
+    const btnModeScale = document.getElementById('modeScale');
+    const btnModeSpace = document.getElementById('modeSpace');
+
+    function setGizmoMode(mode) {
+      transformControl.setMode(mode);
+      btnModeTranslate.classList.toggle('active', mode === 'translate');
+      btnModeRotate.classList.toggle('active', mode === 'rotate');
+      btnModeScale.classList.toggle('active', mode === 'scale');
+    }
+
+    let currentSpace = 'local';
+    btnModeSpace.onclick = () => {
+      currentSpace = (currentSpace === 'local') ? 'world' : 'local';
+      transformControl.setSpace(currentSpace);
+      btnModeSpace.textContent = (currentSpace === 'local') ? '✋ Local' : '🌐 World';
+      btnModeSpace.classList.toggle('active', currentSpace === 'world');
+    };
+
+    btnModeTranslate.onclick = () => setGizmoMode('translate');
+    btnModeRotate.onclick = () => setGizmoMode('rotate');
+    btnModeScale.onclick = () => setGizmoMode('scale');
+
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      const k = e.key.toLowerCase();
+      if (k === 'w' || k === 'ц') setGizmoMode('translate');
+      if (k === 'e' || k === 'у') setGizmoMode('rotate');
+      if (k === 's' || k === 'ы') setGizmoMode('scale');
+      if (k === 'r' || k === 'к') btnModeSpace.click();
+    });
+
+    // -------------------------------------------------------------------------
+    // 10. Keyframing & Live Motion Capture Engine
+    // -------------------------------------------------------------------------
+    function recordCurrentBonePose(boneName, time) {
+      if (!currentVRM) return;
+      const node = currentVRM.humanoid.getNormalizedBoneNode(boneName);
+      if (!node) return;
+
+      const track = recordedTracks[boneName];
+      const eul = node.rotation;
+      const rotDeg = [
+        THREE.MathUtils.radToDeg(eul.x),
+        THREE.MathUtils.radToDeg(eul.y),
+        THREE.MathUtils.radToDeg(eul.z)
+      ];
+      const q = node.quaternion.toArray();
+
+      // Check if keyframe already exists around this time (within 0.03s threshold)
+      const existingIdx = track.findIndex(k => Math.abs(k.time - time) < 0.03);
+      if (existingIdx !== -1) {
+        track[existingIdx] = { time, rotDeg, q };
+      } else {
+        track.push({ time, rotDeg, q });
+      }
+      track.sort((a, b) => a.time - b.time);
+      renderTimelineMarkers();
+    }
+
+    function recordKeyframeIfActive() {
+      if (animatedBoneNames.includes(currentTargetName)) {
+        recordCurrentBonePose(currentTargetName, currentTime);
+      }
+    }
+
+    // Capture ALL bones as keyframe at current time
+    function captureAllBonesKeyframe() {
+      animatedBoneNames.forEach(b => recordCurrentBonePose(b, currentTime));
+      renderTimelineMarkers();
+      showToast(`📸 Кадр зафиксирован на ${currentTime.toFixed(2)}s`);
+    }
+    document.getElementById('btnAddKeyframe').onclick = captureAllBonesKeyframe;
+
+    document.getElementById('btnDelKeyframe').onclick = () => {
+      animatedBoneNames.forEach(b => {
+        const track = recordedTracks[b];
+        const idx = track.findIndex(k => Math.abs(k.time - currentTime) < 0.04);
+        if (idx !== -1) track.splice(idx, 1);
+      });
+      renderTimelineMarkers();
+      showToast(`❌ Кадр удален на ${currentTime.toFixed(2)}s`);
+    };
+
+    function renderTimelineMarkers() {
+      const container = document.getElementById('markerContainer');
+      container.innerHTML = '';
+      const timesSet = new Set();
+      animatedBoneNames.forEach(b => {
+        recordedTracks[b].forEach(k => timesSet.add(k.time.toFixed(2)));
+      });
+      timesSet.forEach(tStr => {
+        const t = parseFloat(tStr);
+        const marker = document.createElement('div');
+        marker.className = 'keyframe-marker';
+        marker.style.left = `${(t / ANIM_DURATION) * 100}%`;
+        container.appendChild(marker);
+      });
+    }
+
+    // Timeline Scrubber
+    const timelineSlider = document.getElementById('timelineSlider');
+    const timeDisplay = document.getElementById('timeDisplay');
+
+    timelineSlider.oninput = () => {
+      currentTime = parseFloat(timelineSlider.value);
+      timeDisplay.textContent = `${currentTime.toFixed(2)}s / ${ANIM_DURATION.toFixed(2)}s`;
+      applyPoseAtTime(currentTime);
+      renderSlidersForTarget();
+    };
+
+    // Playback & Live Recording Loop
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    const btnRecord = document.getElementById('btnRecord');
+    const recBadge = document.getElementById('recBadge');
+    const recSpeedSelect = document.getElementById('recSpeed');
+
+    btnPlayPause.onclick = () => {
+      if (isPlaying) pausePlayback();
+      else startPlayback();
+    };
+
+    function startPlayback() {
+      isPlaying = true;
+      btnPlayPause.textContent = '⏸ Пауза';
+    }
+
+    function pausePlayback() {
+      isPlaying = false;
+      isRecording = false;
+      btnPlayPause.textContent = '▶ Старт';
+      btnRecord.classList.remove('recording');
+      recBadge.style.display = 'none';
+    }
+
+    btnRecord.onclick = () => {
+      if (isRecording) {
+        pausePlayback();
+      } else {
+        isRecording = true;
+        isPlaying = true;
+        btnRecord.classList.add('recording');
+        recBadge.style.display = 'inline-block';
+        btnPlayPause.textContent = '⏸ Стоп запись';
+        showToast('🔴 Идет живая запись! Двигай выбранную руку мышкой.');
+      }
+    };
+
+    // -------------------------------------------------------------------------
+    // 11. Presets & Groove Generator
+    // -------------------------------------------------------------------------
+    const posePresets = {
+      ready: baseDrumPose,
+      snare_hit_L: {
+        chest: { rot: [14.0, 0.0, 0.0] },
+        leftUpperArm: { rot: [48.0, -12.0, 32.0] },
+        leftLowerArm: { rot: [35.0, -20.0, -92.0] },
+        leftHand: { rot: [-26.0, -10.0, 16.0] } // Stick hits snare drum head!
+      },
+      hihat_hit_R: {
+        chest: { rot: [10.0, 5.0, 0.0] },
+        rightUpperArm: { rot: [42.0, 25.0, -32.0] },
+        rightLowerArm: { rot: [28.0, 22.0, 88.0] },
+        rightHand: { rot: [-28.0, 12.0, -12.0] } // Stick hits cymbal!
+      },
+      crash_both: {
+        chest: { rot: [18.0, 0.0, 0.0] },
+        leftUpperArm: { rot: [50.0, -10.0, 30.0] },
+        leftLowerArm: { rot: [40.0, -18.0, -95.0] },
+        leftHand: { rot: [-30.0, -8.0, 18.0] },
+        rightUpperArm: { rot: [48.0, 20.0, -30.0] },
+        rightLowerArm: { rot: [38.0, 20.0, 92.0] },
+        rightHand: { rot: [-30.0, 10.0, -15.0] }
+      },
+      windup_L: {
+        leftUpperArm: { rot: [20.0, -22.0, 48.0] },
+        leftLowerArm: { rot: [10.0, -32.0, -60.0] },
+        leftHand: { rot: [15.0, -5.0, 5.0] } // Raised high in the air
+      },
+      windup_R: {
+        rightUpperArm: { rot: [18.0, 26.0, -45.0] },
+        rightLowerArm: { rot: [8.0, 30.0, 58.0] },
+        rightHand: { rot: [18.0, 6.0, -5.0] }
+      }
+    };
+
+    window.applyPosePreset = (name) => {
+      const preset = posePresets[name];
+      if (!preset || !currentVRM) return;
+      Object.keys(preset).forEach(boneName => {
+        const node = currentVRM.humanoid.getNormalizedBoneNode(boneName);
+        if (node) {
+          const p = preset[boneName];
+          node.rotation.set(
+            THREE.MathUtils.degToRad(p.rot[0]),
+            THREE.MathUtils.degToRad(p.rot[1]),
+            THREE.MathUtils.degToRad(p.rot[2])
+          );
+        }
+      });
+      // Save to current keyframe
+      captureAllBonesKeyframe();
+      renderSlidersForTarget();
+    };
+
+    function setPoseAtTime(poseName, t) {
+      const preset = posePresets[poseName];
+      if (!preset) return;
+      Object.keys(preset).forEach(boneName => {
+        const p = preset[boneName];
+        const eul = new THREE.Euler(
+          THREE.MathUtils.degToRad(p.rot[0]),
+          THREE.MathUtils.degToRad(p.rot[1]),
+          THREE.MathUtils.degToRad(p.rot[2]),
+          'XYZ'
+        );
+        const q = new THREE.Quaternion().setFromEuler(eul);
+        const track = recordedTracks[boneName];
+        if (track) {
+          track.push({ time: t, rotDeg: [...p.rot], q: q.toArray() });
+          track.sort((a, b) => a.time - b.time);
+        }
+      });
+    }
+
+    window.generateGroove = (type) => {
+      clearAllKeyframes();
+      if (type === 'beat8') {
+        // 8-beat rock groove at 120 BPM (1.6s cycle)
+        setPoseAtTime('ready', 0.0);
+        setPoseAtTime('hihat_hit_R', 0.20);
+        setPoseAtTime('snare_hit_L', 0.40);
+        setPoseAtTime('hihat_hit_R', 0.60);
+        setPoseAtTime('hihat_hit_R', 0.80);
+        setPoseAtTime('snare_hit_L', 1.00);
+        setPoseAtTime('hihat_hit_R', 1.20);
+        setPoseAtTime('crash_both', 1.40);
+        setPoseAtTime('ready', 1.60);
+      } else if (type === 'roll') {
+        // Fast Snare Roll
+        setPoseAtTime('ready', 0.0);
+        for (let i = 0; i < 8; i++) {
+          const t = 0.15 + i * 0.16;
+          setPoseAtTime((i % 2 === 0) ? 'snare_hit_L' : 'hihat_hit_R', t);
+        }
+        setPoseAtTime('crash_both', 1.45);
+        setPoseAtTime('ready', 1.60);
+      }
+      renderTimelineMarkers();
+      startPlayback();
+      showToast('🥁 Ритмический рисунок сгенерирован!');
+    };
+
+    window.clearAllKeyframes = () => {
+      animatedBoneNames.forEach(b => { recordedTracks[b] = []; });
+      renderTimelineMarkers();
+      showToast('🧹 Дорожки очищены.');
+    };
+
+    document.getElementById('btnResetToDrumPose').onclick = () => {
+      initDefaultTracks();
+      currentTime = 0;
+      timelineSlider.value = 0;
+      applyPoseAtTime(0);
+      renderSlidersForTarget();
+      renderTimelineMarkers();
+      showToast('🔄 Сброшено в базовую барабанную стойку!');
+    };
+
+    // -------------------------------------------------------------------------
+    // 12. Export & Save Configuration
+    // -------------------------------------------------------------------------
+    document.getElementById('btnExportCode').onclick = () => {
+      const exportData = {
+        drumKit: drumParams,
+        stickL: stickParams.stickL,
+        stickR: stickParams.stickR,
+        duration: ANIM_DURATION,
+        tracks: recordedTracks
+      };
+      const text = `[Анимация и параметры барабанов Астры]:\n` +
+        `DrumKit: pos=[${drumParams.pos.x}, ${drumParams.pos.y}, ${drumParams.pos.z}], rotY=${drumParams.rotY}, scale=${drumParams.scale}\n` +
+        `AnimationJSON:\n${JSON.stringify(exportData, null, 2)}`;
+
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('📋 Данные скопированы! Отправь их в чат.');
+      }).catch(() => {
+        prompt('Скопируйте конфиг вручную:', text);
+      });
+    };
+
+    document.getElementById('btnDownloadJson').onclick = () => {
+      const exportData = {
+        drumKit: drumParams,
+        stickL: stickParams.stickL,
+        stickR: stickParams.stickR,
+        duration: ANIM_DURATION,
+        tracks: recordedTracks
+      };
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'astra_drum_animation.json';
+      a.click();
+      showToast('💾 Файл astra_drum_animation.json скачан!');
+    };
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 3000);
+    }
+
+    // -------------------------------------------------------------------------
+    // 13. Load VRM (Sendagaya Shino) & Initialize Sticks
+    // -------------------------------------------------------------------------
+    const vrmLoader = new GLTFLoader();
+    vrmLoader.register(parser => new VRMLoaderPlugin(parser));
+
+    let currentVRM = null;
+    window.currentVRM = null;
+
+    vrmLoader.load('Sendagaya_Shino.vrm', async (gltf) => {
+      const vrm = gltf.userData.vrm;
+      currentVRM = vrm;
+      window.vrm = vrm;
+      scene.add(vrm.scene);
+      vrm.scene.rotation.y = Math.PI;
+
+      // Facial expressions: cheerful drummer
+      vrm.expressionManager?.setValue('happy', 0.95);
+      vrm.expressionManager?.setValue('relaxed', 0.2);
+
+      // Attach Sticks to Left & Right Hand bones with user-calibrated parameters
+      const leftHand = vrm.humanoid.getNormalizedBoneNode('leftHand');
+      const rightHand = vrm.humanoid.getNormalizedBoneNode('rightHand');
+
+      if (leftHand) {
+        stickL = createStick('stickL');
+        window.stickL = stickL;
+        stickL.position.set(stickParams.stickL.pos[0], stickParams.stickL.pos[1], stickParams.stickL.pos[2]);
+        stickL.rotation.set(stickParams.stickL.rot[0], stickParams.stickL.rot[1], stickParams.stickL.rot[2]);
+        leftHand.add(stickL);
+      }
+      if (rightHand) {
+        stickR = createStick('stickR');
+        window.stickR = stickR;
+        stickR.position.set(stickParams.stickR.pos[0], stickParams.stickR.pos[1], stickParams.stickR.pos[2]);
+        stickR.rotation.set(stickParams.stickR.rot[0], stickParams.stickR.rot[1], stickParams.stickR.rot[2]);
+        rightHand.add(stickR);
+      }
+
+      // Initialize default posture and rhythm tracks
+      initDefaultTracks();
+      applyPoseAtTime(0);
+      renderTimelineMarkers();
+
+      // Start render & animation loop
+      const clock = new THREE.Clock();
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+
+        if (isPlaying) {
+          const speedFactor = isRecording ? parseFloat(recSpeedSelect.value) : 1.0;
+          currentTime = (currentTime + delta * speedFactor) % ANIM_DURATION;
+          timelineSlider.value = currentTime.toFixed(2);
+          timeDisplay.textContent = `${currentTime.toFixed(2)}s / ${ANIM_DURATION.toFixed(2)}s`;
+
+          if (isRecording && animatedBoneNames.includes(currentTargetName)) {
+            // Overdub recording: record only the active selected bone!
+            recordCurrentBonePose(currentTargetName, currentTime);
+            // Apply other bones from their recorded tracks
+            animatedBoneNames.forEach(b => {
+              if (b !== currentTargetName) {
+                const node = vrm.humanoid.getNormalizedBoneNode(b);
+                const s = sampleTrack(recordedTracks[b], currentTime);
+                if (node && s) node.quaternion.fromArray(s.q);
+              }
+            });
+          } else {
+            // Normal playback: apply all bones from tracks
+            applyPoseAtTime(currentTime);
+          }
+        }
+
+        vrm.update(delta);
+        renderer.render(scene, camera);
+      }
+      animate();
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
