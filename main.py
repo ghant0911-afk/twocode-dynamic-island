@@ -37,6 +37,7 @@ from datetime import datetime
 from socketserver import ThreadingMixIn
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.parse
+import urllib.request
 try:
     from desktop_pet import DesktopRoboPet
     from deepseek_brain import DeepSeekBrain
@@ -58,7 +59,7 @@ from PyQt6.QtGui import (
     QPainterPath, QLinearGradient, QRadialGradient
 )
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
+    QApplication, QProgressBar, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QGridLayout, QFrame, QStackedWidget, QSystemTrayIcon, QMenu, QSlider,
     QLineEdit, QTextEdit, QScrollArea, QFileDialog, QComboBox
 )
@@ -79,6 +80,52 @@ VK_MEDIA_PLAY_PAUSE = 0xB3
 VK_VOLUME_MUTE = 0xAD
 VK_VOLUME_DOWN = 0xAE
 VK_VOLUME_UP = 0xAF
+
+
+def hex_to_rgba(hex_code, alpha):
+    hex_code = hex_code.lstrip("#")
+    if len(hex_code) == 3:
+        hex_code = "".join([c * 2 for c in hex_code])
+    r, g, b = tuple(int(hex_code[i:i+2], 16) for i in (0, 2, 4))
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
+class OutdoorWeatherService(QObject):
+    """Fetches real live outdoor temperature asynchronously without blocking the UI."""
+    weather_updated = pyqtSignal(str, str)  # (temp_str, icon_str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.cached_temp = "+5°C"
+        self.cached_icon = "⛅"
+        self._timer = QTimer(self)
+        self._timer.setInterval(15 * 60 * 1000)  # 15 minutes
+        self._timer.timeout.connect(self.fetch_weather_async)
+
+    def start(self):
+        self.fetch_weather_async()
+        self._timer.start()
+
+    def fetch_weather_async(self):
+        t = threading.Thread(target=self._fetch_worker, daemon=True)
+        t.start()
+
+    def _fetch_worker(self):
+        try:
+            req = urllib.request.Request(
+                'https://wttr.in/?format=%t',
+                headers={'User-Agent': 'curl/7.68.0'}
+            )
+            with urllib.request.urlopen(req, timeout=3.5) as resp:
+                raw = resp.read().decode('utf-8', errors='ignore').strip()
+                if raw and any(c.isdigit() for c in raw):
+                    temp = raw if '°C' in raw else f"{raw}°C"
+                    self.cached_temp = temp
+                    self.weather_updated.emit(self.cached_temp, "⛅")
+                    return
+        except Exception:
+            pass
+        self.weather_updated.emit(self.cached_temp, "⛅")
 
 def send_vk(vk_code):
     try:
@@ -2352,12 +2399,192 @@ class SettingsTabWidget(QWidget):
         self.sound_toggled.emit(new_state)
 
 
+
+# ==============================================================================
+# MODULAR SPLIT ISLAND OVERVIEW (CONCEPT 4: LIL JON & WEATHER/COMPANION)
+# ==============================================================================
+class ModularSplitOverviewWidget(QWidget):
+    """
+    Primary expanded view:
+    - Left Card: МЕДИА (Lil Jon track title, artist, progress bar, play/pause controls)
+    - Right Card: ПОГОДА & АСТРА (Live outdoor temperature + Astra companion status & actions)
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.accent_color = "#F59E0B"
+
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(4, 2, 4, 4)
+        main_layout.setSpacing(8)
+
+        # 1. Left Card: Media
+        self.media_card = QFrame()
+        self.media_card.setObjectName("ModularMediaCard")
+        media_layout = QVBoxLayout(self.media_card)
+        media_layout.setContentsMargins(12, 10, 12, 10)
+        media_layout.setSpacing(6)
+
+        self.media_header = QLabel("МЕДИА")
+        self.media_header.setObjectName("ModularMediaHeader")
+        media_layout.addWidget(self.media_header)
+
+        self.track_title = QLabel("Get Low")
+        self.track_title.setObjectName("ModularTrackTitle")
+        self.track_title.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: 800;")
+        media_layout.addWidget(self.track_title)
+
+        self.artist_lbl = QLabel("Lil Jon & The East Side Boyz")
+        self.artist_lbl.setStyleSheet("color: #9CA3AF; font-size: 10px; font-weight: 600;")
+        media_layout.addWidget(self.artist_lbl)
+
+        media_layout.addStretch()
+
+        self.prog_bar = QProgressBar()
+        self.prog_bar.setFixedHeight(4)
+        self.prog_bar.setTextVisible(False)
+        self.prog_bar.setValue(65)
+        media_layout.addWidget(self.prog_bar)
+
+        ctrl_layout = QHBoxLayout()
+        ctrl_layout.setSpacing(8)
+
+        self.btn_prev = QPushButton("⏮")
+        self.btn_prev.setFixedSize(26, 26)
+        self.btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_prev.setStyleSheet("color: #9CA3AF; background: transparent; border: none; font-size: 11px;")
+        self.btn_prev.clicked.connect(lambda: send_vk(VK_MEDIA_PREV_TRACK))
+
+        self.btn_play = QPushButton("⏸")
+        self.btn_play.setFixedSize(30, 30)
+        self.btn_play.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_play.setObjectName("ModularPlayBtn")
+        self.btn_play.clicked.connect(lambda: send_vk(VK_MEDIA_PLAY_PAUSE))
+
+        self.btn_next = QPushButton("⏭")
+        self.btn_next.setFixedSize(26, 26)
+        self.btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_next.setStyleSheet("color: #9CA3AF; background: transparent; border: none; font-size: 11px;")
+        self.btn_next.clicked.connect(lambda: send_vk(VK_MEDIA_NEXT_TRACK))
+
+        ctrl_layout.addWidget(self.btn_prev)
+        ctrl_layout.addWidget(self.btn_play)
+        ctrl_layout.addWidget(self.btn_next)
+        ctrl_layout.addStretch()
+
+        media_layout.addLayout(ctrl_layout)
+        main_layout.addWidget(self.media_card, stretch=1)
+
+        # 2. Right Card: Weather & Astra Companion
+        self.weather_card = QFrame()
+        self.weather_card.setObjectName("ModularWeatherCard")
+        weather_layout = QVBoxLayout(self.weather_card)
+        weather_layout.setContentsMargins(12, 10, 12, 10)
+        weather_layout.setSpacing(6)
+
+        self.weather_header = QLabel("ПОГОДА & АСТРА")
+        self.weather_header.setObjectName("ModularWeatherHeader")
+        weather_layout.addWidget(self.weather_header)
+
+        self.weather_temp_lbl = QLabel("⛅ +5°C")
+        self.weather_temp_lbl.setStyleSheet("color: #FFFFFF; font-size: 16px; font-weight: 800; font-family: 'JetBrains Mono', 'Segoe UI', monospace;")
+        weather_layout.addWidget(self.weather_temp_lbl)
+
+        self.weather_desc_lbl = QLabel("Уличная температура · Live")
+        self.weather_desc_lbl.setStyleSheet("color: #9CA3AF; font-size: 9px;")
+        weather_layout.addWidget(self.weather_desc_lbl)
+
+        weather_layout.addStretch()
+
+        self.companion_lbl = QLabel("👧🏻 Астра (Sendagaya Shino)")
+        self.companion_lbl.setStyleSheet("color: #E5E7EB; font-size: 10px; font-weight: 700;")
+        weather_layout.addWidget(self.companion_lbl)
+
+        self.btn_companion_action = QPushButton("🥁 Режим барабанов")
+        self.btn_companion_action.setFixedHeight(24)
+        self.btn_companion_action.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_companion_action.setObjectName("ModularCompanionBtn")
+        self.btn_companion_action.clicked.connect(self._on_action_clicked)
+        weather_layout.addWidget(self.btn_companion_action)
+
+        main_layout.addWidget(self.weather_card, stretch=1)
+
+        self.update_accent_color(self.accent_color)
+
+    def _on_action_clicked(self):
+        play_sound("click")
+        if "барабан" in self.btn_companion_action.text().lower():
+            self.btn_companion_action.setText("✨ Стандартная поза")
+        else:
+            self.btn_companion_action.setText("🥁 Режим барабанов")
+
+    def update_accent_color(self, color_hex):
+        self.accent_color = color_hex
+        border_rgba = hex_to_rgba(color_hex, 0.28)
+        bg_card_rgba = "rgba(255, 255, 255, 0.03)"
+
+        self.setStyleSheet(f"""
+            QFrame#ModularMediaCard, QFrame#ModularWeatherCard {{
+                background-color: {bg_card_rgba};
+                border: 1px solid {border_rgba};
+                border-radius: 16px;
+            }}
+            QLabel#ModularMediaHeader, QLabel#ModularWeatherHeader {{
+                color: {color_hex};
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 1px;
+            }}
+            QPushButton#ModularPlayBtn {{
+                background-color: {color_hex};
+                color: #000000;
+                font-size: 12px;
+                font-weight: 900;
+                border-radius: 15px;
+                border: none;
+            }}
+            QPushButton#ModularPlayBtn:hover {{
+                background-color: #FFFFFF;
+            }}
+            QPushButton#ModularCompanionBtn {{
+                background-color: rgba(255, 255, 255, 0.06);
+                border: 1px solid {border_rgba};
+                color: {color_hex};
+                font-size: 10px;
+                font-weight: 700;
+                border-radius: 8px;
+            }}
+            QPushButton#ModularCompanionBtn:hover {{
+                background-color: {hex_to_rgba(color_hex, 0.18)};
+                color: #FFFFFF;
+            }}
+            QProgressBar {{
+                background-color: rgba(255, 255, 255, 0.1);
+                border-radius: 2px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {color_hex};
+                border-radius: 2px;
+            }}
+        """)
+
+    def update_media(self, title, artist, is_playing, pos_sec, dur_sec):
+        self.track_title.setText(title if title else "Get Low")
+        self.artist_lbl.setText(artist if artist else "Lil Jon & The East Side Boyz")
+        self.btn_play.setText("⏸" if is_playing else "▶")
+        if dur_sec > 0:
+            self.prog_bar.setValue(min(100, int((pos_sec / dur_sec) * 100)))
+
+    def update_weather(self, temp_str, desc_str):
+        self.weather_temp_lbl.setText(temp_str)
+        self.weather_desc_lbl.setText(desc_str)
+
 class BottomDock(QFrame):
     """Sleek iOS frosted glass pill dock for 5 clean tabs."""
     tab_selected = pyqtSignal(int)
 
-    def __init__(self, parent=None):
+    def __init__(self, accent_color="#F59E0B", parent=None):
         super().__init__(parent)
+        self.accent_color = accent_color
         self.setFixedHeight(34)
         self.setStyleSheet("""
             BottomDock {
@@ -2372,10 +2599,10 @@ class BottomDock(QFrame):
         layout.setSpacing(6)
 
         tabs_data = [
-            ("🎵 Музыка", 0),
+            ("🫧 Пульт", 0),
             ("📂 Полка", 1),
-            ("🤖 Робот", 2),
-            ("⚡ Утилиты", 3),
+            ("🤖 Астра", 2),
+            ("🎵 Плеер", 3),
             ("⚙️ Опции", 4),
         ]
 
@@ -2388,21 +2615,27 @@ class BottomDock(QFrame):
             layout.addWidget(btn)
             self.buttons.append(btn)
 
+        self.current_index = 0
         self.select_tab(0)
 
+    def update_accent_color(self, accent_color):
+        self.accent_color = accent_color
+        self.select_tab(self.current_index)
+
     def select_tab(self, index):
+        self.current_index = index
         for i, btn in enumerate(self.buttons):
             if i == index:
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background: #FFFFFF;
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {self.accent_color};
                         color: #000000;
                         font-size: 10px;
                         font-weight: 800;
                         border-radius: 13px;
                         padding: 0 12px;
                         border: none;
-                    }
+                    }}
                 """)
             else:
                 btn.setStyleSheet("""
@@ -2441,8 +2674,12 @@ class TwoCodeIsland(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAcceptDrops(True)
 
-        self.COLLAPSED_W = 176
-        self.COLLAPSED_H = 32
+        self.accent_color = "#F59E0B"
+        self.weather_service = OutdoorWeatherService(self)
+        self.weather_service.weather_updated.connect(self.on_weather_updated)
+
+        self.COLLAPSED_W = 210
+        self.COLLAPSED_H = 34
         self.EXPANDED_W = 460
         self.EXPANDED_H = 270
         self.BT_W = 280
@@ -2468,6 +2705,7 @@ class TwoCodeIsland(QWidget):
             self.commentary_engine = None
 
         self.init_ui()
+        self.weather_service.start()
 
         self.anim = QPropertyAnimation(self, b"geometry")
         self.anim.setDuration(160)
@@ -2525,36 +2763,69 @@ class TwoCodeIsland(QWidget):
         self.main_stack = AutoSizingStackedWidget()
 
         # ----------------------------------------------------------------------
-        # PAGE 0: COLLAPSED COMPACT DROPLET (FULL ANIMATED ROBOT!)
+        # PAGE 0: COLLAPSED MODULAR SPLIT (LIL JON MEDIA POD + OUTDOOR WEATHER POD)
         # ----------------------------------------------------------------------
         self.pill_widget = QWidget()
-        self.pill_widget.setFixedHeight(self.COLLAPSED_H - 8)
+        self.pill_widget.setFixedHeight(self.COLLAPSED_H)
         self.pill_widget.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pill_widget.mousePressEvent = lambda e: self.expand()
         pill_layout = QHBoxLayout(self.pill_widget)
-        pill_layout.setContentsMargins(6, 0, 8, 0)
-        pill_layout.setSpacing(6)
+        pill_layout.setContentsMargins(0, 0, 0, 0)
+        pill_layout.setSpacing(8)
 
-        # 1. Full Animated TwoCode Robot in the droplet (antenna, orb, eyes, dance)
-        self.pill_robo = LiveAnimatedRobo(size=22)
+        # 1. Left Pod: Media ("Lil Jon")
+        self.left_pod = QFrame()
+        self.left_pod.setObjectName("LeftPod")
+        self.left_pod.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.left_pod.mousePressEvent = lambda e: self.expand()
+        left_layout = QHBoxLayout(self.left_pod)
+        left_layout.setContentsMargins(8, 2, 8, 2)
+        left_layout.setSpacing(5)
+
+        self.pill_play_lbl = QLabel("▶")
+        self.pill_play_lbl.setObjectName("PillPlayLbl")
+        self.pill_play_lbl.setStyleSheet(f"color: {self.accent_color}; font-size: 9px; font-weight: 900;")
+        left_layout.addWidget(self.pill_play_lbl)
+
+        # Mascot kept for full test & signal compatibility
+        self.pill_robo = LiveAnimatedRobo(size=18)
         self.pill_robo.clicked.connect(self.expand)
-        pill_layout.addWidget(self.pill_robo)
+        left_layout.addWidget(self.pill_robo)
 
-        # 2. Status / Real Song Label
-        self.pill_title = QLabel("TwoCode")
-        self.pill_title.setStyleSheet("color: #FFFFFF; font-size: 10px; font-weight: 700;")
-        pill_layout.addWidget(self.pill_title)
+        self.pill_title = QLabel("Lil Jon")
+        self.pill_title.setObjectName("PillTitle")
+        self.pill_title.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 700;")
+        left_layout.addWidget(self.pill_title)
 
-        pill_layout.addStretch()
-
-        # 3. Compact Equalizer
         self.pill_eq = EqualizerBars()
-        pill_layout.addWidget(self.pill_eq)
+        left_layout.addWidget(self.pill_eq)
+
+        pill_layout.addWidget(self.left_pod)
+
+        # 2. Right Pod: Outdoor Weather
+        self.right_pod = QFrame()
+        self.right_pod.setObjectName("RightPod")
+        self.right_pod.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.right_pod.mousePressEvent = lambda e: self.expand()
+        right_layout = QHBoxLayout(self.right_pod)
+        right_layout.setContentsMargins(8, 2, 8, 2)
+        right_layout.setSpacing(4)
+
+        self.pill_weather_icon = QLabel("⛅")
+        self.pill_weather_icon.setStyleSheet("font-size: 11px;")
+        right_layout.addWidget(self.pill_weather_icon)
+
+        self.pill_weather_lbl = QLabel(getattr(self.weather_service, "cached_temp", "+5°C"))
+        self.pill_weather_lbl.setObjectName("PillWeatherLbl")
+        self.pill_weather_lbl.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 700; font-family: 'JetBrains Mono', 'Segoe UI', monospace;")
+        right_layout.addWidget(self.pill_weather_lbl)
+
+        pill_layout.addWidget(self.right_pod)
 
         self.main_stack.addWidget(self.pill_widget)
 
         # ----------------------------------------------------------------------
-        # PAGE 1: EXPANDED ISLAND
+        # PAGE 1: EXPANDED MODULAR SPLIT ISLAND
         # ----------------------------------------------------------------------
         self.expanded_widget = QWidget()
         exp_layout = QVBoxLayout(self.expanded_widget)
@@ -2562,14 +2833,32 @@ class TwoCodeIsland(QWidget):
         exp_layout.setSpacing(6)
 
         top_bar = QHBoxLayout()
-        top_bar.setContentsMargins(4, 0, 4, 0)
+        top_bar.setContentsMargins(6, 2, 6, 2)
         top_bar.setSpacing(6)
 
-        self.brand_lbl = QLabel("TwoCode Dynamic Island Pro")
+        self.brand_icon = QLabel("🫧")
+        self.brand_icon.setStyleSheet("font-size: 12px;")
+        top_bar.addWidget(self.brand_icon)
+
+        self.brand_lbl = QLabel("Modular Dynamic Island")
         self.brand_lbl.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 800;")
         top_bar.addWidget(self.brand_lbl)
 
+        self.accent_badge = QLabel("SPLIT HUD")
+        self.accent_badge.setObjectName("AccentBadge")
+        self.accent_badge.setStyleSheet(f"color: {self.accent_color}; font-size: 9px; font-weight: 800; font-family: monospace; background: {hex_to_rgba(self.accent_color, 0.15)}; border: 1px solid {hex_to_rgba(self.accent_color, 0.3)}; border-radius: 4px; padding: 1px 4px;")
+        top_bar.addWidget(self.accent_badge)
+
         top_bar.addStretch()
+
+        # Color Palette Quick Switcher
+        self.color_cycle_btn = QPushButton("🎨")
+        self.color_cycle_btn.setFixedSize(22, 22)
+        self.color_cycle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.color_cycle_btn.setToolTip("Сменить акцентный цвет острова (Amber / Cyan / Purple / Emerald / Rose / White)")
+        self.color_cycle_btn.setStyleSheet(f"color: {self.accent_color}; background: rgba(255,255,255,0.06); border: 1px solid {hex_to_rgba(self.accent_color, 0.4)}; border-radius: 6px; font-size: 10px;")
+        self.color_cycle_btn.clicked.connect(self.cycle_accent_color)
+        top_bar.addWidget(self.color_cycle_btn)
 
         self.pin_btn = QPushButton("📌")
         self.pin_btn.setFixedSize(22, 22)
@@ -2589,9 +2878,10 @@ class TwoCodeIsland(QWidget):
 
         self.tab_stack = QStackedWidget()
 
-        # Tab 0: Real Windows Music Player
-        self.music_player = RealMusicPlayerWidget()
-        self.tab_stack.addWidget(self.music_player)
+        # Tab 0: Modular Split Overview (PRIMARY VIEW)
+        self.modular_split_view = ModularSplitOverviewWidget(self)
+        self.modular_split_view.update_accent_color(self.accent_color)
+        self.tab_stack.addWidget(self.modular_split_view)
 
         # Tab 1: File Shelf
         self.file_shelf = FileShelfWidget()
@@ -2603,9 +2893,9 @@ class TwoCodeIsland(QWidget):
         self.robo_tab.pet_toggled.connect(self.toggle_desktop_pet)
         self.tab_stack.addWidget(self.robo_tab)
 
-        # Tab 3: Tools Dashboard
-        self.tools_widget = ToolsDashboardWidget()
-        self.tab_stack.addWidget(self.tools_widget)
+        # Tab 3: Real Windows Music Player
+        self.music_player = RealMusicPlayerWidget()
+        self.tab_stack.addWidget(self.music_player)
 
         # Tab 4: Settings
         self.settings_widget = SettingsTabWidget()
@@ -2617,7 +2907,7 @@ class TwoCodeIsland(QWidget):
         exp_layout.addWidget(self.tab_stack, stretch=1)
 
         # Bottom Dock (5 tabs)
-        self.dock = BottomDock()
+        self.dock = BottomDock(accent_color=self.accent_color)
         self.dock.tab_selected.connect(self.tab_stack.setCurrentIndex)
         exp_layout.addWidget(self.dock)
 
@@ -2638,26 +2928,78 @@ class TwoCodeIsland(QWidget):
 
     def on_media_state_changed(self, state):
         # Update expanded music player
-        self.music_player.update_real_media(state)
+        if hasattr(self, 'music_player'):
+            self.music_player.update_real_media(state)
+
+        # Update modular split view
+        if hasattr(self, 'modular_split_view'):
+            if state.is_active and state.is_playing:
+                self.modular_split_view.update_media(
+                    state.title, state.artist, True, getattr(state, "position_sec", 0), getattr(state, "duration_sec", 100)
+                )
+            else:
+                self.modular_split_view.update_media(
+                    state.title if state.title else "Get Low",
+                    state.artist if state.artist else "Lil Jon & The East Side Boyz",
+                    False, 0, 100
+                )
 
         # Update pill and robot animations
         if state.is_active and state.is_playing:
-            clean_t = state.title if len(state.title) <= 16 else state.title[:14] + ".."
+            clean_t = state.title if len(state.title) <= 14 else state.title[:12] + ".."
             self.pill_title.setText(clean_t)
+            if hasattr(self, 'pill_play_lbl'):
+                self.pill_play_lbl.setText("⏸")
             self.pill_robo.set_mode("music")
             self.pill_eq.set_active(True)
-            self.robo_tab.set_music_mode(True, f"{state.title} · {state.artist}")
+            if hasattr(self, 'robo_tab'):
+                self.robo_tab.set_music_mode(True, f"{state.title} · {state.artist}")
             self.current_media_playing = True
             if getattr(self, "desktop_pet", None):
                 self.desktop_pet.set_music(True)
         else:
+            self.pill_title.setText("Lil Jon")
+            if hasattr(self, 'pill_play_lbl'):
+                self.pill_play_lbl.setText("▶")
             if self.pill_robo.mode == "music":
                 self.pill_robo.set_mode("idle")
             self.pill_eq.set_active(False)
-            self.robo_tab.set_music_mode(False)
+            if hasattr(self, 'robo_tab'):
+                self.robo_tab.set_music_mode(False)
             self.current_media_playing = False
             if getattr(self, "desktop_pet", None):
                 self.desktop_pet.set_music(False)
+    def cycle_accent_color(self):
+        presets = ["#F59E0B", "#00F0FF", "#A855F7", "#10B981", "#F43F5E", "#FFFFFF"]
+        try:
+            curr = getattr(self, "accent_color", "#F59E0B").upper()
+            curr_idx = presets.index(curr)
+            next_idx = (curr_idx + 1) % len(presets)
+        except ValueError:
+            next_idx = 0
+        self.set_accent_color(presets[next_idx])
+
+    def set_accent_color(self, hex_color):
+        self.accent_color = hex_color.upper()
+        self.save_config()
+        self.update_style()
+        if hasattr(self, 'modular_split_view'):
+            self.modular_split_view.update_accent_color(self.accent_color)
+        if hasattr(self, 'dock'):
+            self.dock.update_accent_color(self.accent_color)
+        if hasattr(self, 'accent_badge'):
+            self.accent_badge.setStyleSheet(f"color: {self.accent_color}; font-size: 9px; font-weight: 800; font-family: monospace; background: {hex_to_rgba(self.accent_color, 0.15)}; border: 1px solid {hex_to_rgba(self.accent_color, 0.3)}; border-radius: 4px; padding: 1px 4px;")
+        if hasattr(self, 'color_cycle_btn'):
+            self.color_cycle_btn.setStyleSheet(f"color: {self.accent_color}; background: rgba(255,255,255,0.06); border: 1px solid {hex_to_rgba(self.accent_color, 0.4)}; border-radius: 6px; font-size: 10px;")
+
+    def on_weather_updated(self, temp_str, icon_str):
+        if hasattr(self, 'pill_weather_lbl'):
+            self.pill_weather_lbl.setText(temp_str)
+        if hasattr(self, 'pill_weather_icon'):
+            self.pill_weather_icon.setText(icon_str)
+        if hasattr(self, 'modular_split_view'):
+            self.modular_split_view.update_weather(f"{icon_str} {temp_str}", "Уличная температура · Live")
+
 
     def minimumSizeHint(self):
         if not self.is_expanded:
@@ -2670,14 +3012,43 @@ class TwoCodeIsland(QWidget):
         return QSize(self.EXPANDED_W, self.EXPANDED_H)
 
     def update_style(self):
-        radius = "22px" if self.is_expanded else "16px"
-        self.container.setStyleSheet(f"""
-            QFrame#IslandContainer {{
-                background-color: #0B0B0E;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: {radius};
-            }}
-        """)
+        accent_color = getattr(self, "accent_color", "#F59E0B")
+        accent_rgba_border = hex_to_rgba(accent_color, 0.45)
+        accent_rgba_hover = hex_to_rgba(accent_color, 0.85)
+
+        if not self.is_expanded:
+            # 100% transparent container so space between pods is completely clear
+            self.container.setStyleSheet("""
+                QFrame#IslandContainer {
+                    background-color: transparent;
+                    border: none;
+                }
+            """)
+            pod_style = f"""
+                QFrame#LeftPod, QFrame#RightPod {{
+                    background-color: #050608;
+                    border: 1px solid {accent_rgba_border};
+                    border-radius: 14px;
+                }}
+                QFrame#LeftPod:hover, QFrame#RightPod:hover {{
+                    background-color: #0D0F14;
+                    border: 1px solid {accent_rgba_hover};
+                }}
+            """
+            if hasattr(self, 'left_pod'):
+                self.left_pod.setStyleSheet(pod_style)
+            if hasattr(self, 'right_pod'):
+                self.right_pod.setStyleSheet(pod_style)
+            if hasattr(self, 'pill_play_lbl'):
+                self.pill_play_lbl.setStyleSheet(f"color: {accent_color}; font-size: 9px; font-weight: 900;")
+        else:
+            self.container.setStyleSheet(f"""
+                QFrame#IslandContainer {{
+                    background-color: #0B0C10;
+                    border: 1px solid {accent_rgba_border};
+                    border-radius: 22px;
+                }}
+            """)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() or event.mimeData().hasText():
@@ -3118,6 +3489,7 @@ class TwoCodeIsland(QWidget):
                     self.selected_vrm_model = cfg.get("selected_vrm_model", "Sendagaya_Shino.vrm")
                     self.custom_x = cfg.get("pos_x", None)
                     self.custom_y = cfg.get("pos_y", None)
+                    self.accent_color = cfg.get("accent_color", "#F59E0B")
             except Exception:
                 pass
         if hasattr(self, "robo_tab"):
@@ -3130,6 +3502,7 @@ class TwoCodeIsland(QWidget):
                 "always_on_top": self.always_on_top,
                 "desktop_pet_enabled": getattr(self, 'desktop_pet_enabled', True),
                 "selected_vrm_model": getattr(self, "selected_vrm_model", "Sendagaya_Shino.vrm"),
+                "accent_color": getattr(self, "accent_color", "#F59E0B"),
                 "pos_x": self.custom_x,
                 "pos_y": self.custom_y
             }
