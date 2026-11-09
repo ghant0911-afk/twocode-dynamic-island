@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Astra Drumstick Calibrator 3D Studio</title>
+  <script async src="./lib/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./lib/three.module.js",
+        "three/addons/": "./lib/",
+        "@pixiv/three-vrm": "./lib/three-vrm.module.js",
+        "@pixiv/three-vrm-animation": "./lib/three-vrm-animation.module.js"
+      }
+    }
+  </script>
+  <style>
+    :root {
+      --bg: #0c0d12;
+      --card-bg: rgba(18, 20, 29, 0.90);
+      --card-border: rgba(255, 255, 255, 0.12);
+      --accent: #F59E0B;
+      --accent-hover: #D97706;
+      --text: #F3F4F6;
+      --muted: #9CA3AF;
+      --success: #10B981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    #viewport {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      cursor: grab;
+    }
+    #viewport:active { cursor: grabbing; }
+
+    /* Top Navigation Bar */
+    .top-bar {
+      position: absolute;
+      top: 14px;
+      left: 18px;
+      right: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .badge-card {
+      pointer-events: auto;
+      background: var(--card-bg);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+    .badge-card h1 {
+      font-size: 13px;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge-tag {
+      background: rgba(245, 158, 11, 0.2);
+      color: var(--accent);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
+    .quick-cams {
+      display: flex;
+      gap: 6px;
+      pointer-events: auto;
+    }
+    .btn-cam {
+      background: var(--card-bg);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-cam:hover {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* Left Floating Editor Control Panel */
+    .controls-panel {
+      position: absolute;
+      top: 70px;
+      left: 18px;
+      width: 370px;
+      max-height: calc(100vh - 160px);
+      overflow-y: auto;
+      background: var(--card-bg);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 16px;
+      z-index: 20;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.65);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .controls-panel::-webkit-scrollbar { width: 4px; }
+    .controls-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+    /* Stick Switcher Tabs */
+    .tab-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 4px;
+      border-radius: 12px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      padding: 9px 12px;
+      font-size: 11px;
+      font-weight: 800;
+      border-radius: 9px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .tab-btn.active {
+      background: var(--accent);
+      color: #000;
+      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.35);
+    }
+
+    /* 3D Gizmo Mode Selector Card */
+    .gizmo-mode-card {
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.28);
+      border-radius: 12px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .gizmo-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--accent);
+    }
+    .hotkey-tip {
+      font-size: 9px;
+      color: var(--muted);
+      background: rgba(0,0,0,0.5);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .gizmo-btn-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 4px;
+    }
+    .btn-gizmo {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #E5E7EB;
+      padding: 6px 4px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .btn-gizmo:hover {
+      background: rgba(255, 255, 255, 0.16);
+      color: #fff;
+    }
+    .btn-gizmo.active {
+      background: var(--accent);
+      color: #000;
+      font-weight: 900;
+      border-color: var(--accent);
+    }
+    .gizmo-help-text {
+      font-size: 10px;
+      color: #A3A3A3;
+      line-height: 1.35;
+    }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 2px;
+    }
+    .section-title span.val {
+      color: var(--accent);
+      font-family: monospace;
+      font-size: 10px;
+    }
+
+    .control-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 7px 10px;
+      border-radius: 10px;
+    }
+    .control-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: #D1D5DB;
+    }
+    .control-header .num {
+      font-family: monospace;
+      font-weight: 700;
+      color: #fff;
+    }
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    input[type=range] {
+      flex: 1;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+      accent-color: var(--accent);
+    }
+    .step-btn-group {
+      display: flex;
+      gap: 2px;
+    }
+    .btn-step {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #E5E7EB;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 3px 6px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: monospace;
+    }
+    .btn-step:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+    }
+
+    /* Bottom Timeline Dock */
+    .timeline-dock {
+      position: absolute;
+      bottom: 18px;
+      left: 18px;
+      right: 18px;
+      height: 60px;
+      background: var(--card-bg);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      z-index: 20;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.65);
+    }
+    .btn-play {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 900;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-play:hover { background: #fff; }
+    .timeline-scrubber {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .timeline-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .pose-presets {
+      display: flex;
+      gap: 6px;
+    }
+    .btn-pose {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      color: #E5E7EB;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-pose:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* Primary Save & Export Buttons */
+    .export-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .btn-export {
+      background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+      color: #000;
+      border: none;
+      padding: 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 900;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 16px rgba(245, 158, 11, 0.35);
+      transition: all 0.2s;
+    }
+    .btn-export:hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+    .btn-reset {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #9CA3AF;
+      padding: 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-reset:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Notification Toast */
+    #toast {
+      position: absolute;
+      top: 80px;
+      right: 24px;
+      background: #10B981;
+      color: #000;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 12px 20px;
+      border-radius: 14px;
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.45);
+      display: none;
+      z-index: 100;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <div id="viewport"></div>
+
+  <!-- Top Navigation & Camera Presets -->
+  <div class="top-bar">
+    <div class="badge-card">
+      <h1>🥁 Астра · 3D Студия точной калибровки палочек</h1>
+      <span class="badge-tag">INTERACTIVE GIZMO</span>
+      <span style="font-size: 11px; color: var(--muted); margin-left: 6px;">ЛКМ — вращать сцену | ПКМ — смещать | Колесо — зум</span>
+    </div>
+    <div class="quick-cams">
+      <button class="btn-cam" id="camFull">🎯 Вся сцена</button>
+      <button class="btn-cam" id="camHands">👐 Руки макро</button>
+      <button class="btn-cam" id="camLeft">👈 Левая рука</button>
+      <button class="btn-cam" id="camRight">👉 Правая рука</button>
+      <button class="btn-cam" id="camSide">📐 Сбоку</button>
+      <button class="btn-cam" id="camTop">🔝 Сверху</button>
+    </div>
+  </div>
+
+  <!-- Left Interactive Tuning Controls -->
+  <div class="controls-panel">
+    <!-- Active Stick Switcher -->
+    <div class="tab-switch">
+      <button class="tab-btn active" id="tabStickL">🥁 Левая палочка</button>
+      <button class="tab-btn" id="tabStickR">🥁 Правая палочка</button>
+    </div>
+
+    <!-- 3D Transform Gizmo Mode Selector -->
+    <div class="gizmo-mode-card">
+      <div class="gizmo-title">
+        <span>🎮 3D Манипулятор (Gizmo)</span>
+        <span class="hotkey-tip">W / E / R / Q</span>
+      </div>
+      <div class="gizmo-btn-group">
+        <button class="btn-gizmo active" id="btnModeTranslate" title="Горячая клавиша: W">✋ Сдвиг (W)</button>
+        <button class="btn-gizmo" id="btnModeRotate" title="Горячая клавиша: E">🔄 Поворот (E)</button>
+        <button class="btn-gizmo" id="btnModeSpace" title="Горячая клавиша: R">✋ Local</button>
+      </div>
+      <div class="gizmo-help-text">
+        Тяни стрелки/кольца прямо в руке модели или крути ползунки ниже:
+      </div>
+    </div>
+
+    <!-- Position Section -->
+    <div class="section-title">
+      <span>Позиция в ладони (X / Y / Z)</span>
+      <span class="val" id="posSummary">0, 0, 0 mm</span>
+    </div>
+
+    <!-- X Slider -->
+    <div class="control-row">
+      <div class="control-header">
+        <span>X (Влево / Вправо)</span>
+        <span class="num" id="valPosX">-65.0 mm</span>
+      </div>
+      <div class="slider-container">
+        <input type="range" id="sliderPosX" min="-150" max="150" step="0.5" value="-65">
+        <div class="step-btn-group">
+          <button class="btn-step" onclick="stepVal('PosX', -5)">-5</button>
+          <button class="btn-step" onclick="stepVal('PosX', -1)">-1</button>
+          <button class="btn-step" onclick="stepVal('PosX', 1)">+1</button>
+          <button class="btn-step" onclick="stepVal('PosX', 5)">+5</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Y Slider -->
+    <div class="control-row">
+      <div class="control-header">
+        <span>Y (Вверх / Вниз)</span>
+        <span class="num" id="valPosY">-12.0 mm</span>
+      </div>
+      <div class="slider-container">
+        <input type="range" id="sliderPosY" min="-100" max="100" step="0.5" value="-12">
+        <div class="step-btn-group">
+          <button class="btn-step" onclick="stepVal('PosY', -5)">-5</button>
+          <button class="btn-step" onclick="stepVal('PosY', -1)">-1</button>
+          <button class="btn-step" onclick="stepVal('PosY', 1)">+1</button>
+          <button class="btn-step" onclick="stepVal('PosY', 5)">+5</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Z Slider -->
+    <div class="control-row">
+      <div class="control-header">
+        <span>Z (Вперед / Назад)</span>
+        <span class="num" id="valPosZ">-15.0 mm</span>
+      </div>
+      <div class="slider-container">
+        <input type="range" id="sliderPosZ" min="-100" max="100" step="0.5" value="-15">
+        <div class="step-btn-group">
+          <button class="btn-step" onclick="stepVal('PosZ', -5)">-5</button>
+          <button class="btn-step" onclick="stepVal('PosZ', -1)">-1</button>
+          <button class="btn-step" onclick="stepVal('PosZ', 1)">+1</button>
+          <button class="btn-step" onclick="stepVal('PosZ', 5)">+5</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rotation Section -->
+    <div class="section-title">
+      <span>Углы наклона и поворота</span>
+      <span class="val" id="rotSummary">0°, 0°, 0°</span>
+    </div>
+
+    <!-- Rot X Slider (Pitch) -->
+    <div class="control-row">
+      <div class="control-header">
+        <span>Pitch (Наклон вверх/вниз)</span>
+        <span class="num" id="valRotX">15.8°</span>
+      </div>
+      <div class="slider-container">
+        <input type="range" id="sliderRotX" min="-180" max="180" step="0.5" value="15.8">
+        <div class="step-btn-group">
+          <button class="btn-step" onclick="stepVal('RotX', -10)">-10</button>
+          <button class="btn-step" onclick="stepVal('RotX', -1)">-1</button>
+          <button class="btn-step" onclick="stepVal('RotX', 1)">+1</button>
+          <button class="btn-step" onclick="stepVal('RotX', 10)">+10</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rot Y Slider (Yaw) -->
+    <div class="control-row">
+      <div class="control-header">
+        <span>Yaw (Поворот в плоскости)</span>
+        <span class="num" id="valRotY">11.6°</span>
+      </div>
+      <div class="slider-container">
+        <input type="range" id="sliderRotY" min="-180" max="180" step="0.5" value="11.6">
+        <div class="step-btn-group">
+          <button class="btn-step" onclick="stepVal('RotY', -10)">-10</button>
+          <button class="btn-step" onclick="stepVal('RotY', -1)">-1</button>
+          <button class="btn-step" onclick="stepVal('RotY', 1)">+1</button>
+          <button class="btn-step" onclick="stepVal('RotY', 10)">+10</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rot Z Slider (Roll) -->
+    <div class="control-row">
+      <div class="control-header">
+        <span>Roll (Осевой крен)</span>
+        <span class="num" id="valRotZ">72.6°</span>
+      </div>
+      <div class="slider-container">
+        <input type="range" id="sliderRotZ" min="-180" max="180" step="0.5" value="72.6">
+        <div class="step-btn-group">
+          <button class="btn-step" onclick="stepVal('RotZ', -10)">-10</button>
+          <button class="btn-step" onclick="stepVal('RotZ', -1)">-1</button>
+          <button class="btn-step" onclick="stepVal('RotZ', 1)">+1</button>
+          <button class="btn-step" onclick="stepVal('RotZ', 10)">+10</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Visualization Options -->
+    <div class="section-title">
+      <span>Отображение сцены</span>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <button class="btn-cam" id="btnToggleColor" style="flex: 1;">🎨 Подсветка концов</button>
+      <button class="btn-cam" id="btnToggleDrums" style="flex: 1;">🥁 Барабаны: ВКЛ</button>
+    </div>
+
+    <!-- Export & Copy Section -->
+    <div class="export-card">
+      <button class="btn-export" id="btnCopyParams">
+        <span>📋 Скопировать координаты для чата</span>
+      </button>
+      <button class="btn-reset" id="btnResetDefault">
+        <span>🔄 Сбросить к исходным</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Bottom Timeline & Pose Scrubber -->
+  <div class="timeline-dock">
+    <button class="btn-play" id="btnPlayPause">⏸ Пауза</button>
+    <div class="timeline-scrubber">
+      <div class="timeline-info">
+        <span>Временная шкала анимации / соло</span>
+        <span id="timeVal">0.50s / 1.50s</span>
+      </div>
+      <input type="range" id="timeScrubber" min="0" max="1.5" step="0.01" value="0.5">
+    </div>
+    <div class="pose-presets">
+      <button class="btn-pose" onclick="seekTime(0.35)">💥 Удар левой</button>
+      <button class="btn-pose" onclick="seekTime(0.85)">💥 Удар правой</button>
+      <button class="btn-pose" onclick="seekTime(0.50)">✨ Замах</button>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toast">✅ Координаты скопированы в буфер обмена!</div>
+
+  <!-- 3D Studio Engine Script -->
+  <script type="module">
+    import * as THREE from 'three';
+    window.THREE = THREE;
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { TransformControls } from 'three/addons/controls/TransformControls.js';
+    import { VRMLoaderPlugin } from '@pixiv/three-vrm';
+    import { loadMixamoAnimation } from './loadMixamoAnimation.js';
+
+    // -------------------------------------------------------------------------
+    // 1. Scene, Camera, Lighting & WebGL Renderer
+    // -------------------------------------------------------------------------
+    const container = document.getElementById('viewport');
+    const scene = new THREE.Scene();
+    window.scene = scene;
+
+    const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 20);
+    window.camera = camera;
+    camera.position.set(0, 1.15, 2.3);
+    const cameraTarget = new THREE.Vector3(0, 0.65, 0);
+    camera.lookAt(cameraTarget);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    window.renderer = renderer;
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    container.appendChild(renderer.domElement);
+
+    // Studio Lights
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.6);
+    keyLight.position.set(2, 3.5, 2.5);
+    scene.add(keyLight);
+
+    const rimLight = new THREE.DirectionalLight(0x88bbff, 1.6);
+    rimLight.position.set(-2.5, 2, -1.5);
+    scene.add(rimLight);
+
+    const warmFill = new THREE.DirectionalLight(0xffeedd, 1.0);
+    warmFill.position.set(-1.5, 1, 2);
+    scene.add(warmFill);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+
+    // -------------------------------------------------------------------------
+    // 2. TransformControls (Interactive 3D Gizmo)
+    // -------------------------------------------------------------------------
+    const transformControl = new TransformControls(camera, renderer.domElement);
+    window.transformControl = transformControl;
+    transformControl.size = 0.75;
+    transformControl.setSpace('local');
+    scene.add(transformControl);
+
+    let isGizmoDragging = false;
+    transformControl.addEventListener('dragging-changed', (event) => {
+      isGizmoDragging = event.value;
+      if (isGizmoDragging && action && !action.paused) {
+        action.paused = true;
+        document.getElementById('btnPlayPause').textContent = '▶ Старт';
+      }
+    });
+
+    // -------------------------------------------------------------------------
+    // 3. Smooth Orbit Camera Controller
+    // -------------------------------------------------------------------------
+    let isDragging = false;
+    let dragMode = 'rotate'; // 'rotate' or 'pan'
+    let prevMouseX = 0;
+    let prevMouseY = 0;
+    let spherical = { radius: 2.3, theta: 0, phi: 1.35 };
+
+    function updateCameraPos() {
+      spherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, spherical.phi));
+      spherical.radius = Math.max(0.35, Math.min(6.0, spherical.radius));
+      camera.position.x = cameraTarget.x + spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+      camera.position.y = cameraTarget.y + spherical.radius * Math.cos(spherical.phi);
+      camera.position.z = cameraTarget.z + spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+      camera.lookAt(cameraTarget);
+    }
+
+    container.addEventListener('pointerdown', (e) => {
+      // If pointer is over gizmo handle, ignore orbit rotation
+      if (transformControl && (transformControl.axis !== null || isGizmoDragging)) return;
+      isDragging = true;
+      dragMode = (e.button === 2) ? 'pan' : 'rotate';
+      prevMouseX = e.clientX;
+      prevMouseY = e.clientY;
+    });
+
+    window.addEventListener('pointerup', () => { isDragging = false; });
+    container.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    window.addEventListener('pointermove', (e) => {
+      if (!isDragging || isGizmoDragging) return;
+      const dx = e.clientX - prevMouseX;
+      const dy = e.clientY - prevMouseY;
+      prevMouseX = e.clientX;
+      prevMouseY = e.clientY;
+
+      if (dragMode === 'rotate') {
+        spherical.theta -= dx * 0.006;
+        spherical.phi -= dy * 0.006;
+      } else {
+        const right = new THREE.Vector3().crossVectors(camera.up, camera.getWorldDirection(new THREE.Vector3())).negate().normalize();
+        const up = camera.up.clone().normalize();
+        cameraTarget.addScaledVector(right, -dx * 0.002 * (spherical.radius / 2));
+        cameraTarget.addScaledVector(up, dy * 0.002 * (spherical.radius / 2));
+      }
+      updateCameraPos();
+    });
+
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      spherical.radius += e.deltaY * 0.0015;
+      updateCameraPos();
+    }, { passive: false });
+
+    // Camera Presets
+    document.getElementById('camFull').onclick = () => {
+      cameraTarget.set(0, 0.65, 0);
+      spherical = { radius: 2.3, theta: 0, phi: 1.35 };
+      updateCameraPos();
+    };
+    document.getElementById('camHands').onclick = () => {
+      cameraTarget.set(0.05, 0.75, 0.15);
+      spherical = { radius: 0.75, theta: 0, phi: 1.35 };
+      updateCameraPos();
+    };
+    document.getElementById('camLeft').onclick = () => {
+      cameraTarget.set(-0.15, 0.75, 0.15);
+      spherical = { radius: 0.60, theta: -0.25, phi: 1.35 };
+      updateCameraPos();
+    };
+    document.getElementById('camRight').onclick = () => {
+      cameraTarget.set(0.18, 0.75, 0.15);
+      spherical = { radius: 0.60, theta: 0.25, phi: 1.35 };
+      updateCameraPos();
+    };
+    document.getElementById('camSide').onclick = () => {
+      cameraTarget.set(0, 0.65, 0);
+      spherical = { radius: 2.1, theta: Math.PI / 2, phi: 1.40 };
+      updateCameraPos();
+    };
+    document.getElementById('camTop').onclick = () => {
+      cameraTarget.set(0, 0.55, 0.2);
+      spherical = { radius: 1.8, theta: 0, phi: 0.15 };
+      updateCameraPos();
+    };
+
+    // -------------------------------------------------------------------------
+    // 4. Drum Kit Stage & Stool
+    // -------------------------------------------------------------------------
+    const drumStageGroup = new THREE.Group();
+    scene.add(drumStageGroup);
+
+    const stoolGroup = new THREE.Group();
+    const cushion = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.18, 0.08, 24),
+      new THREE.MeshStandardMaterial({ color: 0x1f1f23, roughness: 0.35 })
+    );
+    cushion.position.y = 0.45;
+    stoolGroup.add(cushion);
+    const stem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.02, 0.02, 0.45, 16),
+      new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.85, roughness: 0.2 })
+    );
+    stem.position.y = 0.225;
+    stoolGroup.add(stem);
+    stoolGroup.position.set(0, 0, -0.05);
+    drumStageGroup.add(stoolGroup);
+
+    const gltfLoader = new GLTFLoader();
+    let drumKit = null;
+    gltfLoader.load('drum_kit.glb', (gltf) => {
+      drumKit = gltf.scene;
+      drumKit.scale.set(0.68, 0.68, 0.68);
+      drumKit.position.set(0, 0.40, 0.48);
+      drumStageGroup.add(drumKit);
+    });
+
+    // -------------------------------------------------------------------------
+    // 5. Authentic 5A Hickory Drumstick Factory
+    // -------------------------------------------------------------------------
+    const woodMat = new THREE.MeshStandardMaterial({
+      color: 0xedd6af,
+      roughness: 0.35,
+      metalness: 0.05
+    });
+    const brandMat = new THREE.MeshBasicMaterial({ color: 0x242424 });
+    const tipColorMat = new THREE.MeshBasicMaterial({ color: 0xef4444 }); // Red tip
+    const buttColorMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6 }); // Blue butt
+
+    let isColoredEnd = false;
+
+    function createStick(name) {
+      const grp = new THREE.Group();
+      grp.name = name;
+
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0048, 0.0070, 0.32, 16), woodMat);
+      shaft.position.y = 0.16;
+      shaft.name = 'shaft';
+      grp.add(shaft);
+
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.0062, 16, 16), woodMat);
+      tip.position.y = 0.325;
+      tip.scale.set(1.0, 1.4, 1.0);
+      tip.name = 'tip';
+      grp.add(tip);
+
+      const buttShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0070, 0.0072, 0.07, 16), woodMat);
+      buttShaft.position.y = -0.035;
+      buttShaft.name = 'buttShaft';
+      grp.add(buttShaft);
+
+      const buttCap = new THREE.Mesh(new THREE.SphereGeometry(0.0071, 14, 14), woodMat);
+      buttCap.position.y = -0.07;
+      buttCap.name = 'buttCap';
+      grp.add(buttCap);
+
+      const brandBand = new THREE.Mesh(new THREE.CylinderGeometry(0.00705, 0.00705, 0.012, 16), brandMat);
+      brandBand.position.y = 0.025;
+      grp.add(brandBand);
+
+      return grp;
+    }
+
+    let stickL = null;
+    let stickR = null;
+
+    // -------------------------------------------------------------------------
+    // 6. Stick Calibration State Parameters (mm and degrees)
+    // -------------------------------------------------------------------------
+    const defaultParams = {
+      L: {
+        pos: { x: -56.2, y: -8.0, z: -1.5 }, // in mm
+        rot: { x: -15.0, y: -87.0, z: 72.6 }  // in degrees
+      },
+      R: {
+        pos: { x: 48.7, y: -4.3, z: -6.3 },
+        rot: { x: -91.5, y: -2.5, z: -15.0 }
+      }
+    };
+
+    const saved = localStorage.getItem('astra_stick_params');
+    const params = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(defaultParams));
+
+    let activeStick = 'L'; // 'L' or 'R'
+
+    function applyParamsToMeshes() {
+      if (stickL) {
+        stickL.position.set(
+          params.L.pos.x / 1000,
+          params.L.pos.y / 1000,
+          params.L.pos.z / 1000
+        );
+        stickL.rotation.set(
+          THREE.MathUtils.degToRad(params.L.rot.x),
+          THREE.MathUtils.degToRad(params.L.rot.y),
+          THREE.MathUtils.degToRad(params.L.rot.z)
+        );
+      }
+      if (stickR) {
+        stickR.position.set(
+          params.R.pos.x / 1000,
+          params.R.pos.y / 1000,
+          params.R.pos.z / 1000
+        );
+        stickR.rotation.set(
+          THREE.MathUtils.degToRad(params.R.rot.x),
+          THREE.MathUtils.degToRad(params.R.rot.y),
+          THREE.MathUtils.degToRad(params.R.rot.z)
+        );
+      }
+      localStorage.setItem('astra_stick_params', JSON.stringify(params));
+    }
+
+    function syncUIFromParams() {
+      const p = params[activeStick];
+      document.getElementById('sliderPosX').value = p.pos.x;
+      document.getElementById('sliderPosY').value = p.pos.y;
+      document.getElementById('sliderPosZ').value = p.pos.z;
+
+      document.getElementById('sliderRotX').value = p.rot.x;
+      document.getElementById('sliderRotY').value = p.rot.y;
+      document.getElementById('sliderRotZ').value = p.rot.z;
+
+      document.getElementById('valPosX').textContent = `${p.pos.x.toFixed(1)} mm`;
+      document.getElementById('valPosY').textContent = `${p.pos.y.toFixed(1)} mm`;
+      document.getElementById('valPosZ').textContent = `${p.pos.z.toFixed(1)} mm`;
+
+      document.getElementById('valRotX').textContent = `${p.rot.x.toFixed(1)}°`;
+      document.getElementById('valRotY').textContent = `${p.rot.y.toFixed(1)}°`;
+      document.getElementById('valRotZ').textContent = `${p.rot.z.toFixed(1)}°`;
+
+      document.getElementById('posSummary').textContent = `${p.pos.x.toFixed(0)}, ${p.pos.y.toFixed(0)}, ${p.pos.z.toFixed(0)} mm`;
+      document.getElementById('rotSummary').textContent = `${p.rot.x.toFixed(0)}°, ${p.rot.y.toFixed(0)}°, ${p.rot.z.toFixed(0)}°`;
+    }
+
+    // -------------------------------------------------------------------------
+    // 7. Gizmo <-> Mesh Two-Way Sync
+    // -------------------------------------------------------------------------
+    transformControl.addEventListener('change', () => {
+      if (isGizmoDragging) {
+        const curStick = (activeStick === 'L') ? stickL : stickR;
+        if (curStick) {
+          params[activeStick].pos.x = curStick.position.x * 1000;
+          params[activeStick].pos.y = curStick.position.y * 1000;
+          params[activeStick].pos.z = curStick.position.z * 1000;
+          params[activeStick].rot.x = THREE.MathUtils.radToDeg(curStick.rotation.x);
+          params[activeStick].rot.y = THREE.MathUtils.radToDeg(curStick.rotation.y);
+          params[activeStick].rot.z = THREE.MathUtils.radToDeg(curStick.rotation.z);
+          syncUIFromParams();
+          localStorage.setItem('astra_stick_params', JSON.stringify(params));
+        }
+      }
+    });
+
+    // Gizmo Mode Switches
+    const btnModeTranslate = document.getElementById('btnModeTranslate');
+    const btnModeRotate = document.getElementById('btnModeRotate');
+    const btnModeSpace = document.getElementById('btnModeSpace');
+
+    function setGizmoMode(mode) {
+      transformControl.setMode(mode);
+      btnModeTranslate.classList.toggle('active', mode === 'translate');
+      btnModeRotate.classList.toggle('active', mode === 'rotate');
+      transformControl.visible = true;
+    }
+
+    let currentSpace = 'local';
+    function toggleGizmoSpace() {
+      currentSpace = (currentSpace === 'local') ? 'world' : 'local';
+      transformControl.setSpace(currentSpace);
+      btnModeSpace.textContent = (currentSpace === 'local') ? '✋ Local' : '🌐 World';
+      btnModeSpace.classList.toggle('active', currentSpace === 'world');
+    }
+
+    btnModeTranslate.onclick = () => setGizmoMode('translate');
+    btnModeRotate.onclick = () => setGizmoMode('rotate');
+    btnModeSpace.onclick = () => toggleGizmoSpace();
+
+    // Hotkeys W, E, R, Q (+ Russian layout)
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      const k = e.key.toLowerCase();
+      if (k === 'w' || k === 'ц') setGizmoMode('translate');
+      if (k === 'e' || k === 'у') setGizmoMode('rotate');
+      if (k === 'r' || k === 'к') toggleGizmoSpace();
+      if (k === 'q' || k === 'й') {
+        transformControl.visible = !transformControl.visible;
+        showToast(transformControl.visible ? '👁 Гизмо показан' : '🙈 Гизмо скрыт');
+      }
+    });
+
+    // Active Stick Switcher
+    const tabL = document.getElementById('tabStickL');
+    const tabR = document.getElementById('tabStickR');
+
+    function selectStick(which) {
+      activeStick = which;
+      if (which === 'L') {
+        tabL.classList.add('active');
+        tabR.classList.remove('active');
+        if (stickL) transformControl.attach(stickL);
+      } else {
+        tabR.classList.add('active');
+        tabL.classList.remove('active');
+        if (stickR) transformControl.attach(stickR);
+      }
+      syncUIFromParams();
+    }
+
+    tabL.onclick = () => selectStick('L');
+    tabR.onclick = () => selectStick('R');
+
+    // Sliders event listeners
+    function setupSlider(id, targetObj, key, valLabelId, unit) {
+      const slider = document.getElementById(id);
+      slider.oninput = () => {
+        const v = parseFloat(slider.value);
+        params[activeStick][targetObj][key] = v;
+        document.getElementById(valLabelId).textContent = `${v.toFixed(1)}${unit}`;
+        applyParamsToMeshes();
+        syncUIFromParams();
+      };
+    }
+    setupSlider('sliderPosX', 'pos', 'x', 'valPosX', ' mm');
+    setupSlider('sliderPosY', 'pos', 'y', 'valPosY', ' mm');
+    setupSlider('sliderPosZ', 'pos', 'z', 'valPosZ', ' mm');
+
+    setupSlider('sliderRotX', 'rot', 'x', 'valRotX', '°');
+    setupSlider('sliderRotY', 'rot', 'y', 'valRotY', '°');
+    setupSlider('sliderRotZ', 'rot', 'z', 'valRotZ', '°');
+
+    window.stepVal = (name, delta) => {
+      const slider = document.getElementById(`slider${name}`);
+      if (!slider) return;
+      slider.value = (parseFloat(slider.value) + delta).toFixed(1);
+      slider.dispatchEvent(new Event('input'));
+    };
+
+    // Toggle Color Assist
+    document.getElementById('btnToggleColor').onclick = () => {
+      isColoredEnd = !isColoredEnd;
+      document.getElementById('btnToggleColor').textContent = isColoredEnd ? '🪵 Натуральный цвет' : '🎨 Подсветка концов';
+      function updateStickMat(stick) {
+        if (!stick) return;
+        const tipMesh = stick.getObjectByName('tip');
+        const buttMesh = stick.getObjectByName('buttCap');
+        if (tipMesh) tipMesh.material = isColoredEnd ? tipColorMat : woodMat;
+        if (buttMesh) buttMesh.material = isColoredEnd ? buttColorMat : woodMat;
+      }
+      updateStickMat(stickL);
+      updateStickMat(stickR);
+    };
+
+    // Toggle Drum Kit
+    document.getElementById('btnToggleDrums').onclick = () => {
+      drumStageGroup.visible = !drumStageGroup.visible;
+      document.getElementById('btnToggleDrums').textContent = drumStageGroup.visible ? '🥁 Барабаны: ВКЛ' : '🥁 Барабаны: СКРЫТЫ';
+    };
+
+    // Reset default
+    document.getElementById('btnResetDefault').onclick = () => {
+      params.L = JSON.parse(JSON.stringify(defaultParams.L));
+      params.R = JSON.parse(JSON.stringify(defaultParams.R));
+      applyParamsToMeshes();
+      syncUIFromParams();
+      showToast('🔄 Сброшено к исходной калибровке!');
+    };
+
+    // Copy parameters for Chat
+    document.getElementById('btnCopyParams').onclick = () => {
+      const text = `[Параметры барабанных палочек Астры]:\n` +
+        `Left Stick:\n` +
+        `  pos: [${(params.L.pos.x/1000).toFixed(4)}, ${(params.L.pos.y/1000).toFixed(4)}, ${(params.L.pos.z/1000).toFixed(4)}]\n` +
+        `  rot_deg: [${params.L.rot.x.toFixed(1)}, ${params.L.rot.y.toFixed(1)}, ${params.L.rot.z.toFixed(1)}]\n` +
+        `  rot_rad: [${THREE.MathUtils.degToRad(params.L.rot.x).toFixed(3)}, ${THREE.MathUtils.degToRad(params.L.rot.y).toFixed(3)}, ${THREE.MathUtils.degToRad(params.L.rot.z).toFixed(3)}]\n\n` +
+        `Right Stick:\n` +
+        `  pos: [${(params.R.pos.x/1000).toFixed(4)}, ${(params.R.pos.y/1000).toFixed(4)}, ${(params.R.pos.z/1000).toFixed(4)}]\n` +
+        `  rot_deg: [${params.R.rot.x.toFixed(1)}, ${params.R.rot.y.toFixed(1)}, ${params.R.rot.z.toFixed(1)}]\n` +
+        `  rot_rad: [${THREE.MathUtils.degToRad(params.R.rot.x).toFixed(3)}, ${THREE.MathUtils.degToRad(params.R.rot.y).toFixed(3)}, ${THREE.MathUtils.degToRad(params.R.rot.z).toFixed(3)}]`;
+
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('📋 Координаты скопированы! Просто вставь их в чат.');
+      }).catch(() => {
+        prompt('Скопируйте координаты вручную:', text);
+      });
+    };
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.style.display = 'block';
+      setTimeout(() => { toast.style.display = 'none'; }, 3000);
+    }
+
+    // -------------------------------------------------------------------------
+    // 8. Load VRM (Sendagaya Shino) & Mixamo Animation
+    // -------------------------------------------------------------------------
+    const vrmLoader = new GLTFLoader();
+    vrmLoader.register(parser => new VRMLoaderPlugin(parser));
+
+    let currentVRM = null;
+    let mixer = null;
+    let action = null;
+
+    vrmLoader.load('Sendagaya_Shino.vrm', async (gltf) => {
+      const vrm = gltf.userData.vrm;
+      currentVRM = vrm;
+      window.vrm = vrm;
+      scene.add(vrm.scene);
+      vrm.scene.rotation.y = Math.PI;
+
+      // Cheerful expression
+      vrm.expressionManager?.setValue('happy', 0.95);
+      vrm.expressionManager?.setValue('relaxed', 0.2);
+
+      // Attach Sticks to Left & Right Hand bones
+      const leftHand = vrm.humanoid.getNormalizedBoneNode('leftHand');
+      const rightHand = vrm.humanoid.getNormalizedBoneNode('rightHand');
+
+      if (leftHand) {
+        stickL = createStick('stickL');
+        leftHand.add(stickL);
+      }
+      if (rightHand) {
+        stickR = createStick('stickR');
+        rightHand.add(stickR);
+      }
+
+      applyParamsToMeshes();
+      syncUIFromParams();
+
+      // Attach TransformControls to Left Stick by default
+      if (stickL) {
+        transformControl.attach(stickL);
+      }
+
+      // Load Drumming MoCap
+      const clip = await loadMixamoAnimation('animations/Playing_Drums.fbx', vrm);
+      mixer = new THREE.AnimationMixer(vrm.scene);
+      window.mixer = mixer;
+      action = mixer.clipAction(clip);
+      window.action = action;
+      action.play();
+
+      // Set initial paused pose (swing)
+      action.paused = true;
+      action.time = 0.50;
+      mixer.update(0);
+      vrm.update(0);
+
+      // Timeline Controls
+      const playBtn = document.getElementById('btnPlayPause');
+      playBtn.onclick = () => {
+        action.paused = !action.paused;
+        playBtn.textContent = action.paused ? '▶ Старт' : '⏸ Пауза';
+      };
+
+      const scrubber = document.getElementById('timeScrubber');
+      scrubber.max = clip.duration.toFixed(2);
+      scrubber.oninput = () => {
+        action.paused = true;
+        playBtn.textContent = '▶ Старт';
+        action.time = parseFloat(scrubber.value);
+        mixer.update(0);
+        vrm.update(0);
+        document.getElementById('timeVal').textContent = `${action.time.toFixed(2)}s / ${clip.duration.toFixed(2)}s`;
+      };
+
+      window.seekTime = (t) => {
+        scrubber.value = t;
+        scrubber.dispatchEvent(new Event('input'));
+      };
+
+      // Animation Loop
+      const clock = new THREE.Clock();
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        if (action && !action.paused) {
+          mixer.update(delta);
+          vrm.update(delta);
+          scrubber.value = action.time % clip.duration;
+          document.getElementById('timeVal').textContent = `${scrubber.value}s / ${clip.duration.toFixed(2)}s`;
+        }
+        renderer.render(scene, camera);
+      }
+      animate();
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

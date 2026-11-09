@@ -201,22 +201,18 @@
 
       if (leftHand) {
         stickL = createStick('stickL');
-        // Anatomical grip inside the left fist:
-        stickL.position.set(-0.065, -0.012, -0.015);
-        // Calibrated matched grip pointing down-forward into snare drum
-        const lTarget = new THREE.Vector3(-0.935, 0.236, 0.266).normalize();
-        stickL.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), lTarget);
+        // User-calibrated matched grip (Astra 3D Studio):
+        stickL.position.set(-0.0562, -0.0080, -0.0015);
+        stickL.rotation.set(-0.262, -1.518, 1.267);
         stickL.visible = isDrumVisible;
         leftHand.add(stickL);
       }
 
       if (rightHand) {
         stickR = createStick('stickR');
-        // Anatomical grip inside the right fist:
-        stickR.position.set(0.065, -0.012, -0.015);
-        // Calibrated matched grip pointing up-forward ready to strike cymbal
-        const rTarget = new THREE.Vector3(-0.034, 0.999, 0.021).normalize();
-        stickR.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), rTarget);
+        // User-calibrated matched grip (Astra 3D Studio):
+        stickR.position.set(0.0487, -0.0043, -0.0063);
+        stickR.rotation.set(-1.597, -0.044, -0.262);
         stickR.visible = isDrumVisible;
         rightHand.add(stickR);
       }

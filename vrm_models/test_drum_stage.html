@@ -14,12 +14,31 @@
     }
   </script>
   <style>
-    body { margin: 0; background: #1a1a24; overflow: hidden; }
-    #container { width: 600px; height: 600px; margin: auto; }
+    body { margin: 0; background: #1a1a24; overflow: hidden; font-family: sans-serif; color: #fff; }
+    #container { width: 100vw; height: 100vh; position: absolute; left: 0; top: 0; }
+    #controls {
+      position: absolute; bottom: 12px; left: 12px; z-index: 100;
+      background: rgba(15, 15, 20, 0.85); backdrop-filter: blur(8px);
+      padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15);
+      font-size: 13px; display: flex; gap: 12px; align-items: center;
+    }
+    button {
+      background: #4f46e5; color: white; border: none; padding: 6px 12px;
+      border-radius: 6px; cursor: pointer; font-weight: bold;
+    }
+    button:hover { background: #6366f1; }
   </style>
 </head>
 <body>
   <div id="container"></div>
+  <div id="controls">
+    <button id="togglePlay">Pause</button>
+    <button id="viewFront">Front</button>
+    <button id="viewHands">Hands Close-up</button>
+    <button id="viewSide">Side View</button>
+    <span id="timeDisplay">0.00s</span>
+  </div>
+
   <script type="module">
     import * as THREE from 'three';
     window.THREE = THREE;
@@ -29,21 +48,30 @@
 
     const container = document.getElementById('container');
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 20);
-    // Elevated front view so user sees drummer, sticks, drums, pedals clearly
+    window.scene = scene;
+
+    const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 20);
+    window.camera = camera;
     camera.position.set(0, 1.15, 2.3);
     camera.lookAt(0, 0.55, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(600, 600);
+    window.renderer = renderer;
+    renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio || 1);
     container.appendChild(renderer.domElement);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
     keyLight.position.set(1.5, 3, 2.5);
     scene.add(keyLight);
     
-    const fillLight = new THREE.DirectionalLight(0x88bbff, 1.2);
+    const fillLight = new THREE.DirectionalLight(0x88bbff, 1.3);
     fillLight.position.set(-2, 1.5, 1);
     scene.add(fillLight);
     
@@ -124,6 +152,7 @@
       grp.add(brandBand);
       return grp;
     }
+    window.createStick = createStick;
 
     const vrmLoader = new GLTFLoader();
     vrmLoader.register(parser => new VRMLoaderPlugin(parser));
@@ -134,36 +163,77 @@
       scene.add(vrm.scene);
       vrm.scene.rotation.y = Math.PI; // Face forward towards camera
 
-      // Attach drumsticks to hands (anatomically calibrated into fists)
+      // Attach drumsticks to hands
       const leftHand = vrm.humanoid.getNormalizedBoneNode('leftHand');
       const rightHand = vrm.humanoid.getNormalizedBoneNode('rightHand');
-      if (leftHand) {
-        const stickL = createStick('stickL');
-        stickL.position.set(0.040, -0.012, 0.005);
-        stickL.rotation.set(-1.334, 0.139, -0.176);
-        leftHand.add(stickL);
-      }
-      if (rightHand) {
-        const stickR = createStick('stickR');
-        stickR.position.set(-0.040, -0.012, 0.005);
-        stickR.rotation.set(0.126, -0.083, -1.168);
-        rightHand.add(stickR);
-      }
+      
+      const stickL = createStick('stickL');
+      window.stickL = stickL;
+      // User-calibrated matched grip (Astra 3D Studio):
+      stickL.position.set(-0.0562, -0.0080, -0.0015);
+      stickL.rotation.set(-0.262, -1.518, 1.267);
+      if (leftHand) leftHand.add(stickL);
 
-      // Load Mixamo Drumming Animation
+      const stickR = createStick('stickR');
+      window.stickR = stickR;
+      // User-calibrated matched grip (Astra 3D Studio):
+      stickR.position.set(0.0487, -0.0043, -0.0063);
+      stickR.rotation.set(-1.597, -0.044, -0.262);
+      if (rightHand) rightHand.add(stickR);
+
+      window.setStickL = (px, py, pz, rx, ry, rz) => {
+        stickL.position.set(px, py, pz);
+        stickL.rotation.set(rx, ry, rz);
+      };
+      window.setStickR = (px, py, pz, rx, ry, rz) => {
+        stickR.position.set(px, py, pz);
+        stickR.rotation.set(rx, ry, rz);
+      };
+      window.getStickParams = () => ({
+        L: { pos: stickL.position.toArray(), rot: stickL.rotation.toArray() },
+        R: { pos: stickR.position.toArray(), rot: stickR.rotation.toArray() }
+      });
       const clip = await loadMixamoAnimation('animations/Playing_Drums.fbx', vrm);
       const mixer = new THREE.AnimationMixer(vrm.scene);
+      window.mixer = mixer;
       const action = mixer.clipAction(clip);
+      window.action = action;
       action.play();
 
       window.isReady = true;
 
+      // Controls setup
+      const toggleBtn = document.getElementById('togglePlay');
+      toggleBtn.onclick = () => {
+        action.paused = !action.paused;
+        toggleBtn.textContent = action.paused ? 'Play' : 'Pause';
+      };
+
+      document.getElementById('viewFront').onclick = () => {
+        camera.position.set(0, 1.15, 2.3);
+        camera.lookAt(0, 0.55, 0);
+      };
+
+      document.getElementById('viewHands').onclick = () => {
+        camera.position.set(0, 0.85, 1.05);
+        camera.lookAt(0, 0.65, 0);
+      };
+
+      document.getElementById('viewSide').onclick = () => {
+        camera.position.set(1.4, 0.95, 1.1);
+        camera.lookAt(0, 0.65, 0);
+      };
+
+      const timeDisplay = document.getElementById('timeDisplay');
       const clock = new THREE.Clock();
       function animate() {
         requestAnimationFrame(animate);
         const delta = clock.getDelta();
         mixer.update(delta);
         vrm.update(delta);
+        if (action) {
+          timeDisplay.textContent = action.time.toFixed(2) + 's';
+        }
         renderer.render(scene, camera);
       }
       animate();
