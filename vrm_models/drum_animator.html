@@ -494,12 +494,12 @@
     <div class="target-tree">
       <div class="tree-title">
         <span>Элемент для позирования / движения</span>
-        <span id="curNodeLabel" style="color: var(--accent); font-family: monospace;">drumKit</span>
+        <span id="curNodeLabel" style="color: var(--accent); font-family: monospace;">leftLowerArm</span>
       </div>
       
       <!-- Drum Kit, Torso & Seating -->
       <div class="tree-grid" style="grid-template-columns: 1fr 1fr;">
-        <button class="btn-node active" id="node_drumKit">🥁 Барабанная установка</button>
+        <button class="btn-node" id="node_drumKit">🥁 Барабанная установка</button>
         <button class="btn-node" id="node_chest">🧍 Наклон корпуса</button>
       </div>
 
@@ -507,7 +507,7 @@
       <div class="tree-title" style="margin-top: 4px;"><span>👈 Левая рука (Snare Drum)</span></div>
       <div class="tree-grid">
         <button class="btn-node" id="node_leftUpperArm">💪 Плечо (Upper)</button>
-        <button class="btn-node" id="node_leftLowerArm">💪 Локоть (Forearm)</button>
+        <button class="btn-node active" id="node_leftLowerArm">💪 Локоть (Forearm)</button>
         <button class="btn-node" id="node_leftHand">✋ Кисть (Wrist)</button>
         <button class="btn-node" id="node_stickL">🥢 Палочка левая</button>
       </div>
@@ -524,15 +524,15 @@
 
     <!-- Transform Controls Mode -->
     <div class="gizmo-bar">
-      <button class="btn-gizmo active" id="modeTranslate">✋ Сдвиг (W)</button>
-      <button class="btn-gizmo" id="modeRotate">🔄 Вращение (E)</button>
+      <button class="btn-gizmo" id="modeTranslate">✋ Сдвиг (W)</button>
+      <button class="btn-gizmo active" id="modeRotate">🔄 Вращение (E)</button>
       <button class="btn-gizmo" id="modeScale">📐 Масштаб (S)</button>
       <button class="btn-gizmo" id="modeSpace">✋ Local</button>
     </div>
 
     <!-- Dynamic Sliders for Active Target -->
     <div id="dynamicSliders" style="display: flex; flex-direction: column; gap: 6px;">
-      <!-- Populated dynamically via JS depending on bone vs drum kit -->
+      <!-- Populated dynamically via JS -->
     </div>
 
     <!-- Export & Copy Actions -->
@@ -557,15 +557,15 @@
     <div style="display: flex; flex-direction: column; gap: 6px;">
       <button class="pose-btn" onclick="applyPosePreset('ready')">
         <span>🥁 Стойка готовности (Ready)</span>
-        <span style="font-size: 10px; color: var(--muted);">Обе руки у малого</span>
+        <span style="font-size: 10px; color: var(--muted);">Руки вперед к малому</span>
       </button>
       <button class="pose-btn" onclick="applyPosePreset('snare_hit_L')">
         <span>💥 Удар левой (Snare Strike)</span>
-        <span style="font-size: 10px; color: var(--accent);">Пластик барабана</span>
+        <span style="font-size: 10px; color: var(--accent);">Удар по пластику</span>
       </button>
       <button class="pose-btn" onclick="applyPosePreset('hihat_hit_R')">
         <span>💥 Удар правой (Hi-Hat Strike)</span>
-        <span style="font-size: 10px; color: var(--accent);">Тарелка справа</span>
+        <span style="font-size: 10px; color: var(--accent);">Удар по тарелке</span>
       </button>
       <button class="pose-btn" onclick="applyPosePreset('crash_both')">
         <span>💥 Двойной удар (Crash Both)</span>
@@ -603,7 +603,7 @@
       <span>Параметры барабанной установки</span>
     </div>
     <div id="drumKitSummary" style="font-size: 11px; font-family: monospace; color: var(--muted); background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px; line-height: 1.5;">
-      pos: [0, 0.40, 0.48]<br>
+      pos: [0.075, 0.869, 0.844]<br>
       rotY: 0.0°<br>
       scale: 0.68
     </div>
@@ -641,7 +641,6 @@
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { TransformControls } from 'three/addons/controls/TransformControls.js';
     import { VRMLoaderPlugin } from '@pixiv/three-vrm';
-    import { loadMixamoAnimation } from './loadMixamoAnimation.js';
 
     // -------------------------------------------------------------------------
     // 1. Scene, Camera, Lighting & Renderer Setup
@@ -652,8 +651,8 @@
 
     const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 20);
     window.camera = camera;
-    camera.position.set(0, 1.15, 2.3);
-    const cameraTarget = new THREE.Vector3(0, 0.65, 0);
+    camera.position.set(0, 1.25, 2.5);
+    const cameraTarget = new THREE.Vector3(0, 0.75, 0.35);
     camera.lookAt(cameraTarget);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -703,7 +702,7 @@
     let dragMode = 'rotate';
     let prevMouseX = 0;
     let prevMouseY = 0;
-    let spherical = { radius: 2.2, theta: 0, phi: 1.35 };
+    let spherical = { radius: 2.3, theta: 0, phi: 1.30 };
 
     function updateCameraPos() {
       spherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, spherical.phi));
@@ -752,38 +751,38 @@
 
     // Camera Presets
     document.getElementById('camFull').onclick = () => {
-      cameraTarget.set(0, 0.65, 0);
-      spherical = { radius: 2.2, theta: 0, phi: 1.35 };
+      cameraTarget.set(0, 0.70, 0.35);
+      spherical = { radius: 2.3, theta: 0, phi: 1.30 };
       updateCameraPos();
     };
     document.getElementById('camHands').onclick = () => {
-      cameraTarget.set(0.0, 0.68, 0.25);
-      spherical = { radius: 0.95, theta: 0, phi: 1.30 };
+      cameraTarget.set(0.12, 0.85, 0.50);
+      spherical = { radius: 1.05, theta: 0.1, phi: 1.25 };
       updateCameraPos();
     };
     document.getElementById('camTop').onclick = () => {
-      cameraTarget.set(0, 0.55, 0.25);
-      spherical = { radius: 1.6, theta: 0, phi: 0.25 };
+      cameraTarget.set(0.1, 0.75, 0.50);
+      spherical = { radius: 1.7, theta: 0, phi: 0.30 };
       updateCameraPos();
     };
     document.getElementById('camSide').onclick = () => {
-      cameraTarget.set(0, 0.65, 0.1);
-      spherical = { radius: 1.8, theta: Math.PI / 2, phi: 1.35 };
+      cameraTarget.set(0, 0.75, 0.40);
+      spherical = { radius: 1.9, theta: Math.PI / 2, phi: 1.35 };
       updateCameraPos();
     };
     document.getElementById('camLeft').onclick = () => {
-      cameraTarget.set(-0.2, 0.70, 0.15);
-      spherical = { radius: 0.85, theta: -0.4, phi: 1.35 };
+      cameraTarget.set(0.25, 0.82, 0.45);
+      spherical = { radius: 0.95, theta: -0.4, phi: 1.30 };
       updateCameraPos();
     };
     document.getElementById('camRight').onclick = () => {
-      cameraTarget.set(0.2, 0.70, 0.15);
-      spherical = { radius: 0.85, theta: 0.4, phi: 1.35 };
+      cameraTarget.set(-0.05, 0.85, 0.45);
+      spherical = { radius: 0.95, theta: 0.4, phi: 1.30 };
       updateCameraPos();
     };
 
     // -------------------------------------------------------------------------
-    // 4. Drum Kit & Stool
+    // 4. Drum Kit & Stool (Using user's calibrated coordinates)
     // -------------------------------------------------------------------------
     const drumStageGroup = new THREE.Group();
     scene.add(drumStageGroup);
@@ -805,11 +804,11 @@
     stoolGroup.position.set(0, 0, -0.05);
     drumStageGroup.add(stoolGroup);
 
-    // Drum Kit glTF
+    // Drum Kit glTF — User's calibrated position applied
     let drumKit = null;
     window.drumKit = null;
     const drumParams = {
-      pos: { x: 0, y: 0.40, z: 0.48 },
+      pos: { x: 0.074878, y: 0.869019, z: 0.844478 },
       rotY: 0.0,
       scale: 0.68
     };
@@ -822,7 +821,9 @@
       drumStageGroup.add(drumKit);
       applyDrumParams();
       updateDrumSummary();
-      selectTargetNode('drumKit');
+      if (currentVRM) {
+        selectTargetNode('leftLowerArm');
+      }
     });
 
     function applyDrumParams() {
@@ -891,16 +892,16 @@
     };
 
     // -------------------------------------------------------------------------
-    // 6. Base Drummer Posture Preset (Natural seating and arm bend)
+    // 6. Authentic Forward-Reaching Drummer Posture (Arms reaching forward to drums)
     // -------------------------------------------------------------------------
-    const baseDrumPose = {
-      chest: { rot: [10.0, 0.0, 0.0] },
-      leftUpperArm: { rot: [42.0, -18.0, 38.0] },
-      leftLowerArm: { rot: [22.0, -28.0, -78.0] },
-      leftHand: { rot: [-12.0, -8.0, 12.0] },
-      rightUpperArm: { rot: [38.0, 22.0, -35.0] },
-      rightLowerArm: { rot: [20.0, 25.0, 75.0] },
-      rightHand: { rot: [-15.0, 10.0, -8.0] }
+    const forwardDrumPose = {
+      chest: { quat: [ -0.0775, -0.0033, 0.0076, 0.9970 ] },
+      leftUpperArm: { quat: [ -0.0290, 0.1583, -0.3470, -0.9240 ] },
+      leftLowerArm: { quat: [ 0.0000, -0.7443, 0.0000, 0.6678 ] },
+      leftHand: { quat: [ 0.2248, 0.0674, -0.0412, 0.9712 ] },
+      rightUpperArm: { quat: [ 0.0892, 0.4079, -0.3744, 0.8279 ] },
+      rightLowerArm: { quat: [ 0.0000, 0.8279, 0.0000, 0.5608 ] },
+      rightHand: { quat: [ 0.0963, -0.1818, -0.0009, 0.9786 ] }
     };
 
     // Constant Seated Lower Body (Hips, Thighs, Shins, Feet) firmly planted on stool & pedals
@@ -950,13 +951,12 @@
     // -------------------------------------------------------------------------
     // 7. Multi-Track Animation Engine (Keyframes & Slerp Interpolator)
     // -------------------------------------------------------------------------
-    const ANIM_DURATION = 1.60; // 1.6s loop
+    const ANIM_DURATION = 1.60;
     window.ANIM_DURATION = ANIM_DURATION;
     let currentTime = 0.0;
     let isPlaying = false;
     let isRecording = false;
 
-    // Tracks: boneName -> Array of { time, rotDeg: [x,y,z], q: [x,y,z,w] }
     const recordedTracks = {};
     const animatedBoneNames = [
       'chest',
@@ -968,18 +968,18 @@
 
     function initDefaultTracks() {
       animatedBoneNames.forEach(name => {
-        const p = baseDrumPose[name];
+        const p = forwardDrumPose[name];
         if (p) {
-          const eul = new THREE.Euler(
-            THREE.MathUtils.degToRad(p.rot[0]),
-            THREE.MathUtils.degToRad(p.rot[1]),
-            THREE.MathUtils.degToRad(p.rot[2]),
-            'XYZ'
-          );
-          const q = new THREE.Quaternion().setFromEuler(eul);
+          const q = new THREE.Quaternion().fromArray(p.quat);
+          const eul = new THREE.Euler().setFromQuaternion(q, 'XYZ');
+          const rotDeg = [
+            THREE.MathUtils.radToDeg(eul.x),
+            THREE.MathUtils.radToDeg(eul.y),
+            THREE.MathUtils.radToDeg(eul.z)
+          ];
           recordedTracks[name] = [
-            { time: 0.0, rotDeg: [...p.rot], q: q.toArray() },
-            { time: ANIM_DURATION, rotDeg: [...p.rot], q: q.toArray() }
+            { time: 0.0, rotDeg: [...rotDeg], q: [...p.quat] },
+            { time: ANIM_DURATION, rotDeg: [...rotDeg], q: [...p.quat] }
           ];
         }
       });
@@ -1023,9 +1023,11 @@
       };
     }
 
-    function applyArmPosesAtTime(t) {
+    // Apply pose from recorded tracks to bones
+    function applyArmPosesAtTime(t, skipActiveBone = false) {
       if (!currentVRM) return;
       animatedBoneNames.forEach(boneName => {
+        if (skipActiveBone && boneName === currentTargetName) return;
         const node = currentVRM.humanoid.getNormalizedBoneNode(boneName);
         if (node) {
           const sample = sampleTrack(recordedTracks[boneName], t);
@@ -1039,7 +1041,7 @@
     // -------------------------------------------------------------------------
     // 8. Active Target Selection (Joints vs Drum Kit)
     // -------------------------------------------------------------------------
-    let currentTargetName = 'drumKit';
+    let currentTargetName = 'leftLowerArm';
     let currentTargetNode = null;
 
     function selectTargetNode(name) {
@@ -1080,7 +1082,7 @@
     });
 
     // -------------------------------------------------------------------------
-    // 9. Dynamic Sliders Builder & Two-Way Sync
+    // 9. Dynamic Sliders Builder & Instant Two-Way Sync
     // -------------------------------------------------------------------------
     function renderSlidersForTarget() {
       const container = document.getElementById('dynamicSliders');
@@ -1090,10 +1092,10 @@
         container.appendChild(createSliderRow('X (Влево / Вправо)', 'drumX', -0.6, 0.6, 0.005, drumParams.pos.x, 'm', (v) => {
           drumParams.pos.x = v; applyDrumParams(); updateDrumSummary();
         }));
-        container.appendChild(createSliderRow('Y (Высота)', 'drumY', 0.1, 0.9, 0.005, drumParams.pos.y, 'm', (v) => {
+        container.appendChild(createSliderRow('Y (Высота)', 'drumY', 0.1, 1.2, 0.005, drumParams.pos.y, 'm', (v) => {
           drumParams.pos.y = v; applyDrumParams(); updateDrumSummary();
         }));
-        container.appendChild(createSliderRow('Z (Ближе / Дальше)', 'drumZ', 0.1, 1.0, 0.005, drumParams.pos.z, 'm', (v) => {
+        container.appendChild(createSliderRow('Z (Ближе / Дальше)', 'drumZ', 0.1, 1.2, 0.005, drumParams.pos.z, 'm', (v) => {
           drumParams.pos.z = v; applyDrumParams(); updateDrumSummary();
         }));
         container.appendChild(createSliderRow('Поворот вокруг Y', 'drumRotY', -90, 90, 0.5, drumParams.rotY, '°', (v) => {
@@ -1114,28 +1116,42 @@
           p.pos[2] = v; if (currentTargetNode) currentTargetNode.position.z = v;
         }));
       } else {
-        let curDeg = [0, 0, 0];
-        if (currentTargetNode) {
-          curDeg = [
-            THREE.MathUtils.radToDeg(currentTargetNode.rotation.x),
-            THREE.MathUtils.radToDeg(currentTargetNode.rotation.y),
-            THREE.MathUtils.radToDeg(currentTargetNode.rotation.z)
-          ];
-        }
-        container.appendChild(createSliderRow('Pitch (Наклон X)', 'boneRotX', -180, 180, 0.5, curDeg[0], '°', (v) => {
-          if (currentTargetNode) currentTargetNode.rotation.x = THREE.MathUtils.degToRad(v);
-          recordKeyframeIfActive();
-        }));
-        container.appendChild(createSliderRow('Yaw (Поворот Y)', 'boneRotY', -180, 180, 0.5, curDeg[1], '°', (v) => {
-          if (currentTargetNode) currentTargetNode.rotation.y = THREE.MathUtils.degToRad(v);
-          recordKeyframeIfActive();
-        }));
-        container.appendChild(createSliderRow('Roll (Крен Z)', 'boneRotZ', -180, 180, 0.5, curDeg[2], '°', (v) => {
-          if (currentTargetNode) currentTargetNode.rotation.z = THREE.MathUtils.degToRad(v);
-          recordKeyframeIfActive();
-        }));
+        // Humanoid Arm / Torso Bone: Rotate relative delta in degrees
+        const rotCard = document.createElement('div');
+        rotCard.style.display = 'flex';
+        rotCard.style.flexDirection = 'column';
+        rotCard.style.gap = '8px';
+
+        rotCard.innerHTML = `
+          <div style="font-size: 11px; font-weight: 800; color: var(--accent); display: flex; justify-content: space-between;">
+            <span>Управление суставом:</span>
+            <span style="font-family: monospace;">3D кольца / Кнопки</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+            <button class="btn-node" onclick="stepBoneDelta('x', 5)">📐 Наклон +5°</button>
+            <button class="btn-node" onclick="stepBoneDelta('x', -5)">📐 Наклон -5°</button>
+            <button class="btn-node" onclick="stepBoneDelta('y', 5)">🔄 Поворот +5°</button>
+            <button class="btn-node" onclick="stepBoneDelta('y', -5)">🔄 Поворот -5°</button>
+            <button class="btn-node" onclick="stepBoneDelta('z', 5)">🌀 Крен +5°</button>
+            <button class="btn-node" onclick="stepBoneDelta('z', -5)">🌀 Крен -5°</button>
+          </div>
+          <div style="font-size: 10px; color: var(--muted); line-height: 1.3;">
+            💡 Кликай и тяни кольца 3D-манипулятора прямо на руке модели или используй кнопки шага выше.
+          </div>
+        `;
+        container.appendChild(rotCard);
       }
     }
+
+    window.stepBoneDelta = (axis, deg) => {
+      if (!currentTargetNode) return;
+      const rad = THREE.MathUtils.degToRad(deg);
+      if (axis === 'x') currentTargetNode.rotateX(rad);
+      if (axis === 'y') currentTargetNode.rotateY(rad);
+      if (axis === 'z') currentTargetNode.rotateZ(rad);
+      recordCurrentBonePose(currentTargetName, currentTime);
+      renderSlidersForTarget();
+    };
 
     function createSliderRow(label, id, min, max, step, initialVal, unit, onChange) {
       const card = document.createElement('div');
@@ -1171,8 +1187,9 @@
       return card;
     }
 
+    // Two-way sync when dragging 3D Gizmo directly
     transformControl.addEventListener('change', () => {
-      if (!isGizmoDragging || !currentTargetNode) return;
+      if (!currentTargetNode) return;
 
       if (currentTargetName === 'drumKit') {
         drumParams.pos.x = drumKit.position.x;
@@ -1183,10 +1200,7 @@
         renderSlidersForTarget();
         updateDrumSummary();
       } else if (animatedBoneNames.includes(currentTargetName)) {
-        renderSlidersForTarget();
-        if (isRecording) {
-          recordCurrentBonePose(currentTargetName, currentTime);
-        }
+        recordCurrentBonePose(currentTargetName, currentTime);
       }
     });
 
@@ -1248,12 +1262,6 @@
       }
       track.sort((a, b) => a.time - b.time);
       renderTimelineMarkers();
-    }
-
-    function recordKeyframeIfActive() {
-      if (animatedBoneNames.includes(currentTargetName)) {
-        recordCurrentBonePose(currentTargetName, currentTime);
-      }
     }
 
     function captureAllBonesKeyframe() {
@@ -1339,37 +1347,37 @@
     // 11. Presets & Groove Generator
     // -------------------------------------------------------------------------
     const posePresets = {
-      ready: baseDrumPose,
+      ready: forwardDrumPose,
       snare_hit_L: {
-        chest: { rot: [14.0, 0.0, 0.0] },
-        leftUpperArm: { rot: [48.0, -12.0, 32.0] },
-        leftLowerArm: { rot: [35.0, -20.0, -92.0] },
-        leftHand: { rot: [-26.0, -10.0, 16.0] }
+        chest: { quat: [ -0.0775, -0.0033, 0.0076, 0.9970 ] },
+        leftUpperArm: { quat: [ -0.08, 0.12, -0.38, -0.91 ] },
+        leftLowerArm: { quat: [ 0.12, -0.82, 0.05, 0.55 ] },
+        leftHand: { quat: [ 0.38, 0.05, -0.06, 0.92 ] }
       },
       hihat_hit_R: {
-        chest: { rot: [10.0, 5.0, 0.0] },
-        rightUpperArm: { rot: [42.0, 25.0, -32.0] },
-        rightLowerArm: { rot: [28.0, 22.0, 88.0] },
-        rightHand: { rot: [-28.0, 12.0, -12.0] }
+        chest: { quat: [ -0.0775, -0.0033, 0.0076, 0.9970 ] },
+        rightUpperArm: { quat: [ 0.12, 0.42, -0.32, 0.84 ] },
+        rightLowerArm: { quat: [ -0.08, 0.88, 0.04, 0.46 ] },
+        rightHand: { quat: [ 0.28, -0.22, 0.02, 0.93 ] }
       },
       crash_both: {
-        chest: { rot: [18.0, 0.0, 0.0] },
-        leftUpperArm: { rot: [50.0, -10.0, 30.0] },
-        leftLowerArm: { rot: [40.0, -18.0, -95.0] },
-        leftHand: { rot: [-30.0, -8.0, 18.0] },
-        rightUpperArm: { rot: [48.0, 20.0, -30.0] },
-        rightLowerArm: { rot: [38.0, 20.0, 92.0] },
-        rightHand: { rot: [-30.0, 10.0, -15.0] }
+        chest: { quat: [ -0.12, 0.0, 0.0, 0.99 ] },
+        leftUpperArm: { quat: [ -0.10, 0.10, -0.35, -0.92 ] },
+        leftLowerArm: { quat: [ 0.15, -0.85, 0.08, 0.50 ] },
+        leftHand: { quat: [ 0.42, 0.06, -0.08, 0.90 ] },
+        rightUpperArm: { quat: [ 0.15, 0.40, -0.30, 0.85 ] },
+        rightLowerArm: { quat: [ -0.12, 0.90, 0.06, 0.42 ] },
+        rightHand: { quat: [ 0.32, -0.25, 0.03, 0.91 ] }
       },
       windup_L: {
-        leftUpperArm: { rot: [20.0, -22.0, 48.0] },
-        leftLowerArm: { rot: [10.0, -32.0, -60.0] },
-        leftHand: { rot: [15.0, -5.0, 5.0] }
+        leftUpperArm: { quat: [ -0.15, 0.22, -0.15, -0.95 ] },
+        leftLowerArm: { quat: [ 0.00, -0.45, 0.00, 0.89 ] },
+        leftHand: { quat: [ 0.05, 0.02, 0.01, 0.99 ] }
       },
       windup_R: {
-        rightUpperArm: { rot: [18.0, 26.0, -45.0] },
-        rightLowerArm: { rot: [8.0, 30.0, 58.0] },
-        rightHand: { rot: [18.0, 6.0, -5.0] }
+        rightUpperArm: { quat: [ 0.05, 0.48, -0.22, 0.84 ] },
+        rightLowerArm: { quat: [ 0.00, 0.52, 0.00, 0.85 ] },
+        rightHand: { quat: [ 0.02, -0.10, 0.01, 0.99 ] }
       }
     };
 
@@ -1380,11 +1388,7 @@
         const node = currentVRM.humanoid.getNormalizedBoneNode(boneName);
         if (node) {
           const p = preset[boneName];
-          node.rotation.set(
-            THREE.MathUtils.degToRad(p.rot[0]),
-            THREE.MathUtils.degToRad(p.rot[1]),
-            THREE.MathUtils.degToRad(p.rot[2])
-          );
+          node.quaternion.fromArray(p.quat);
         }
       });
       captureAllBonesKeyframe();
@@ -1396,16 +1400,16 @@
       if (!preset) return;
       Object.keys(preset).forEach(boneName => {
         const p = preset[boneName];
-        const eul = new THREE.Euler(
-          THREE.MathUtils.degToRad(p.rot[0]),
-          THREE.MathUtils.degToRad(p.rot[1]),
-          THREE.MathUtils.degToRad(p.rot[2]),
-          'XYZ'
-        );
-        const q = new THREE.Quaternion().setFromEuler(eul);
+        const q = new THREE.Quaternion().fromArray(p.quat);
+        const eul = new THREE.Euler().setFromQuaternion(q, 'XYZ');
+        const rotDeg = [
+          THREE.MathUtils.radToDeg(eul.x),
+          THREE.MathUtils.radToDeg(eul.y),
+          THREE.MathUtils.radToDeg(eul.z)
+        ];
         const track = recordedTracks[boneName];
         if (track) {
-          track.push({ time: t, rotDeg: [...p.rot], q: q.toArray() });
+          track.push({ time: t, rotDeg: [...rotDeg], q: [...p.quat] });
           track.sort((a, b) => a.time - b.time);
         }
       });
@@ -1499,15 +1503,13 @@
     }
 
     // -------------------------------------------------------------------------
-    // 13. Load VRM (Sendagaya Shino) & Mixamo MoCap Seated Base
+    // 13. Load VRM (Sendagaya Shino) & Initialize
     // -------------------------------------------------------------------------
     const vrmLoader = new GLTFLoader();
     vrmLoader.register(parser => new VRMLoaderPlugin(parser));
 
     let currentVRM = null;
     window.currentVRM = null;
-    let baseMixer = null;
-    let baseAction = null;
 
     vrmLoader.load('Sendagaya_Shino.vrm', async (gltf) => {
       const vrm = gltf.userData.vrm;
@@ -1539,26 +1541,14 @@
         rightHand.add(stickR);
       }
 
-      // Load Mixamo Drumming Animation for authentic seated body & pedal action
-      try {
-        const baseClip = await loadMixamoAnimation('animations/Playing_Drums.fbx', vrm);
-        baseMixer = new THREE.AnimationMixer(vrm.scene);
-        window.baseMixer = baseMixer;
-        baseAction = baseMixer.clipAction(baseClip);
-        window.baseAction = baseAction;
-        baseAction.play();
-        baseAction.paused = true;
-        baseAction.time = 0.50; // Seated at drums
-        baseMixer.update(0);
-      } catch (err) {
-        console.warn('Fallback to static seated pose:', err);
-        applySeatedLowerBody();
-      }
-
-      // Apply initial seated posture and arm tracks
+      // Initialize default tracks (forward drum pose)
       initDefaultTracks();
+      applySeatedLowerBody();
       applyArmPosesAtTime(0);
       renderTimelineMarkers();
+
+      // Attach 3D Gizmo to Left Forearm immediately so user can manipulate it!
+      selectTargetNode('leftLowerArm');
 
       // Start render & animation loop
       const clock = new THREE.Clock();
@@ -1566,21 +1556,10 @@
         requestAnimationFrame(animate);
         const delta = clock.getDelta();
 
-        // 1. Base animation updates seated hips, legs, and kick/hi-hat foot pedals
-        if (baseMixer && baseAction) {
-          if (isPlaying) {
-            baseAction.paused = false;
-            baseMixer.update(delta);
-          } else {
-            baseAction.paused = true;
-            baseMixer.update(0);
-          }
-        } else {
-          // Keep lower body seated on stool
-          applySeatedLowerBody();
-        }
+        // 1. Maintain seated lower body position permanently on stool
+        applySeatedLowerBody();
 
-        // 2. Multi-track / user arm animation overlays on top of seated body
+        // 2. Multi-track / user arm animation
         if (isPlaying) {
           const speedFactor = isRecording ? parseFloat(recSpeedSelect.value) : 1.0;
           currentTime = (currentTime + delta * speedFactor) % ANIM_DURATION;
@@ -1599,9 +1578,6 @@
           } else {
             applyArmPosesAtTime(currentTime);
           }
-        } else {
-          // When paused or scrubbing, apply arm pose at currentTime
-          applyArmPosesAtTime(currentTime);
         }
 
         vrm.update(delta);
