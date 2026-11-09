@@ -474,7 +474,7 @@
   <div class="top-bar">
     <div class="badge-card">
       <h1>🥁 Астра · Студия барабанной анимации и поз</h1>
-      <span class="badge-tag">ANIMATION STUDIO</span>
+      <span class="badge-tag">SEATED DRUMMER PRO</span>
       <span class="rec-badge" id="recBadge">🔴 REC LIVE</span>
       <span style="font-size: 11px; color: var(--muted); margin-left: 6px;">ЛКМ — вращать | ПКМ — сдвиг | Колесо — зум</span>
     </div>
@@ -497,7 +497,7 @@
         <span id="curNodeLabel" style="color: var(--accent); font-family: monospace;">drumKit</span>
       </div>
       
-      <!-- Drum Kit & Torso -->
+      <!-- Drum Kit, Torso & Seating -->
       <div class="tree-grid" style="grid-template-columns: 1fr 1fr;">
         <button class="btn-node active" id="node_drumKit">🥁 Барабанная установка</button>
         <button class="btn-node" id="node_chest">🧍 Наклон корпуса</button>
@@ -544,7 +544,7 @@
         <span>💾 Скачать JSON анимации</span>
       </button>
       <button class="btn-secondary" id="btnResetToDrumPose">
-        <span>🔄 Сбросить в базовую стойку</span>
+        <span>🔄 Сбросить в базовую барабанную стойку</span>
       </button>
     </div>
   </div>
@@ -641,6 +641,7 @@
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { TransformControls } from 'three/addons/controls/TransformControls.js';
     import { VRMLoaderPlugin } from '@pixiv/three-vrm';
+    import { loadMixamoAnimation } from './loadMixamoAnimation.js';
 
     // -------------------------------------------------------------------------
     // 1. Scene, Camera, Lighting & Renderer Setup
@@ -821,7 +822,6 @@
       drumStageGroup.add(drumKit);
       applyDrumParams();
       updateDrumSummary();
-      // Attach to drumKit by default so user can position it immediately!
       selectTargetNode('drumKit');
     });
 
@@ -903,6 +903,50 @@
       rightHand: { rot: [-15.0, 10.0, -8.0] }
     };
 
+    // Constant Seated Lower Body (Hips, Thighs, Shins, Feet) firmly planted on stool & pedals
+    const seatedLowerBody = {
+      hips: {
+        pos: [-0.098, 0.645, -0.020],
+        quat: [0.1379, 0.2028, -0.0737, 0.9667]
+      },
+      spine: {
+        quat: [-0.1643, -0.0102, 0.0171, 0.9862]
+      },
+      upperChest: {
+        quat: [-0.0775, -0.0035, 0.0076, 0.9970]
+      },
+      leftUpperLeg: {
+        quat: [-0.4652, -0.0291, 0.0827, -0.8808]
+      },
+      leftLowerLeg: {
+        quat: [-0.6871, 0.0383, -0.0475, 0.7240]
+      },
+      leftFoot: {
+        quat: [0.2090, 0.0929, 0.0982, 0.9685]
+      },
+      rightUpperLeg: {
+        quat: [0.5189, -0.0648, 0.2310, 0.8205]
+      },
+      rightLowerLeg: {
+        quat: [-0.6939, -0.0284, -0.0328, 0.7188]
+      },
+      rightFoot: {
+        quat: [0.0299, -0.0020, -0.0567, 0.9979]
+      }
+    };
+
+    function applySeatedLowerBody() {
+      if (!currentVRM) return;
+      const humanoid = currentVRM.humanoid;
+      for (const [bone, data] of Object.entries(seatedLowerBody)) {
+        const node = humanoid.getNormalizedBoneNode(bone);
+        if (node) {
+          if (data.pos) node.position.fromArray(data.pos);
+          if (data.quat) node.quaternion.fromArray(data.quat);
+        }
+      }
+    }
+
     // -------------------------------------------------------------------------
     // 7. Multi-Track Animation Engine (Keyframes & Slerp Interpolator)
     // -------------------------------------------------------------------------
@@ -923,7 +967,6 @@
     animatedBoneNames.forEach(b => { recordedTracks[b] = []; });
 
     function initDefaultTracks() {
-      // Create initial ready posture at t=0.0 and t=1.6 (loop closure)
       animatedBoneNames.forEach(name => {
         const p = baseDrumPose[name];
         if (p) {
@@ -940,8 +983,6 @@
           ];
         }
       });
-      // Add a couple default beats so there's an immediate rhythm to see!
-      // Hit left on snare at 0.4s and 1.2s
       setPoseAtTime('snare_hit_L', 0.40);
       setPoseAtTime('hihat_hit_R', 0.80);
       setPoseAtTime('snare_hit_L', 1.20);
@@ -951,7 +992,6 @@
       if (!track || track.length === 0) return null;
       if (track.length === 1) return track[0];
 
-      // Sort by time
       track.sort((a, b) => a.time - b.time);
 
       if (t <= track[0].time) return track[0];
@@ -983,7 +1023,7 @@
       };
     }
 
-    function applyPoseAtTime(t) {
+    function applyArmPosesAtTime(t) {
       if (!currentVRM) return;
       animatedBoneNames.forEach(boneName => {
         const node = currentVRM.humanoid.getNormalizedBoneNode(boneName);
@@ -1006,7 +1046,6 @@
       currentTargetName = name;
       document.getElementById('curNodeLabel').textContent = name;
 
-      // Update tree buttons
       document.querySelectorAll('.btn-node').forEach(b => {
         b.classList.toggle('active', b.id === `node_${name}`);
       });
@@ -1031,7 +1070,6 @@
       renderSlidersForTarget();
     }
 
-    // Attach click events for tree buttons
     [
       'drumKit', 'chest',
       'leftUpperArm', 'leftLowerArm', 'leftHand', 'stickL',
@@ -1049,7 +1087,6 @@
       container.innerHTML = '';
 
       if (currentTargetName === 'drumKit') {
-        // Sliders for Drum Kit: X, Y, Z, RotY, Scale
         container.appendChild(createSliderRow('X (Влево / Вправо)', 'drumX', -0.6, 0.6, 0.005, drumParams.pos.x, 'm', (v) => {
           drumParams.pos.x = v; applyDrumParams(); updateDrumSummary();
         }));
@@ -1077,7 +1114,6 @@
           p.pos[2] = v; if (currentTargetNode) currentTargetNode.position.z = v;
         }));
       } else {
-        // It's a humanoid bone node (Euler Pitch, Yaw, Roll)
         let curDeg = [0, 0, 0];
         if (currentTargetNode) {
           curDeg = [
@@ -1135,7 +1171,6 @@
       return card;
     }
 
-    // Two-way sync when dragging 3D Gizmo directly
     transformControl.addEventListener('change', () => {
       if (!isGizmoDragging || !currentTargetNode) return;
 
@@ -1150,13 +1185,11 @@
       } else if (animatedBoneNames.includes(currentTargetName)) {
         renderSlidersForTarget();
         if (isRecording) {
-          // Record live at current time!
           recordCurrentBonePose(currentTargetName, currentTime);
         }
       }
     });
 
-    // Gizmo Modes
     const btnModeTranslate = document.getElementById('modeTranslate');
     const btnModeRotate = document.getElementById('modeRotate');
     const btnModeScale = document.getElementById('modeScale');
@@ -1207,7 +1240,6 @@
       ];
       const q = node.quaternion.toArray();
 
-      // Check if keyframe already exists around this time (within 0.03s threshold)
       const existingIdx = track.findIndex(k => Math.abs(k.time - time) < 0.03);
       if (existingIdx !== -1) {
         track[existingIdx] = { time, rotDeg, q };
@@ -1224,7 +1256,6 @@
       }
     }
 
-    // Capture ALL bones as keyframe at current time
     function captureAllBonesKeyframe() {
       animatedBoneNames.forEach(b => recordCurrentBonePose(b, currentTime));
       renderTimelineMarkers();
@@ -1258,18 +1289,16 @@
       });
     }
 
-    // Timeline Scrubber
     const timelineSlider = document.getElementById('timelineSlider');
     const timeDisplay = document.getElementById('timeDisplay');
 
     timelineSlider.oninput = () => {
       currentTime = parseFloat(timelineSlider.value);
       timeDisplay.textContent = `${currentTime.toFixed(2)}s / ${ANIM_DURATION.toFixed(2)}s`;
-      applyPoseAtTime(currentTime);
+      applyArmPosesAtTime(currentTime);
       renderSlidersForTarget();
     };
 
-    // Playback & Live Recording Loop
     const btnPlayPause = document.getElementById('btnPlayPause');
     const btnRecord = document.getElementById('btnRecord');
     const recBadge = document.getElementById('recBadge');
@@ -1315,13 +1344,13 @@
         chest: { rot: [14.0, 0.0, 0.0] },
         leftUpperArm: { rot: [48.0, -12.0, 32.0] },
         leftLowerArm: { rot: [35.0, -20.0, -92.0] },
-        leftHand: { rot: [-26.0, -10.0, 16.0] } // Stick hits snare drum head!
+        leftHand: { rot: [-26.0, -10.0, 16.0] }
       },
       hihat_hit_R: {
         chest: { rot: [10.0, 5.0, 0.0] },
         rightUpperArm: { rot: [42.0, 25.0, -32.0] },
         rightLowerArm: { rot: [28.0, 22.0, 88.0] },
-        rightHand: { rot: [-28.0, 12.0, -12.0] } // Stick hits cymbal!
+        rightHand: { rot: [-28.0, 12.0, -12.0] }
       },
       crash_both: {
         chest: { rot: [18.0, 0.0, 0.0] },
@@ -1335,7 +1364,7 @@
       windup_L: {
         leftUpperArm: { rot: [20.0, -22.0, 48.0] },
         leftLowerArm: { rot: [10.0, -32.0, -60.0] },
-        leftHand: { rot: [15.0, -5.0, 5.0] } // Raised high in the air
+        leftHand: { rot: [15.0, -5.0, 5.0] }
       },
       windup_R: {
         rightUpperArm: { rot: [18.0, 26.0, -45.0] },
@@ -1358,7 +1387,6 @@
           );
         }
       });
-      // Save to current keyframe
       captureAllBonesKeyframe();
       renderSlidersForTarget();
     };
@@ -1386,7 +1414,6 @@
     window.generateGroove = (type) => {
       clearAllKeyframes();
       if (type === 'beat8') {
-        // 8-beat rock groove at 120 BPM (1.6s cycle)
         setPoseAtTime('ready', 0.0);
         setPoseAtTime('hihat_hit_R', 0.20);
         setPoseAtTime('snare_hit_L', 0.40);
@@ -1397,7 +1424,6 @@
         setPoseAtTime('crash_both', 1.40);
         setPoseAtTime('ready', 1.60);
       } else if (type === 'roll') {
-        // Fast Snare Roll
         setPoseAtTime('ready', 0.0);
         for (let i = 0; i < 8; i++) {
           const t = 0.15 + i * 0.16;
@@ -1421,7 +1447,7 @@
       initDefaultTracks();
       currentTime = 0;
       timelineSlider.value = 0;
-      applyPoseAtTime(0);
+      applyArmPosesAtTime(0);
       renderSlidersForTarget();
       renderTimelineMarkers();
       showToast('🔄 Сброшено в базовую барабанную стойку!');
@@ -1473,13 +1499,15 @@
     }
 
     // -------------------------------------------------------------------------
-    // 13. Load VRM (Sendagaya Shino) & Initialize Sticks
+    // 13. Load VRM (Sendagaya Shino) & Mixamo MoCap Seated Base
     // -------------------------------------------------------------------------
     const vrmLoader = new GLTFLoader();
     vrmLoader.register(parser => new VRMLoaderPlugin(parser));
 
     let currentVRM = null;
     window.currentVRM = null;
+    let baseMixer = null;
+    let baseAction = null;
 
     vrmLoader.load('Sendagaya_Shino.vrm', async (gltf) => {
       const vrm = gltf.userData.vrm;
@@ -1511,9 +1539,25 @@
         rightHand.add(stickR);
       }
 
-      // Initialize default posture and rhythm tracks
+      // Load Mixamo Drumming Animation for authentic seated body & pedal action
+      try {
+        const baseClip = await loadMixamoAnimation('animations/Playing_Drums.fbx', vrm);
+        baseMixer = new THREE.AnimationMixer(vrm.scene);
+        window.baseMixer = baseMixer;
+        baseAction = baseMixer.clipAction(baseClip);
+        window.baseAction = baseAction;
+        baseAction.play();
+        baseAction.paused = true;
+        baseAction.time = 0.50; // Seated at drums
+        baseMixer.update(0);
+      } catch (err) {
+        console.warn('Fallback to static seated pose:', err);
+        applySeatedLowerBody();
+      }
+
+      // Apply initial seated posture and arm tracks
       initDefaultTracks();
-      applyPoseAtTime(0);
+      applyArmPosesAtTime(0);
       renderTimelineMarkers();
 
       // Start render & animation loop
@@ -1522,6 +1566,21 @@
         requestAnimationFrame(animate);
         const delta = clock.getDelta();
 
+        // 1. Base animation updates seated hips, legs, and kick/hi-hat foot pedals
+        if (baseMixer && baseAction) {
+          if (isPlaying) {
+            baseAction.paused = false;
+            baseMixer.update(delta);
+          } else {
+            baseAction.paused = true;
+            baseMixer.update(0);
+          }
+        } else {
+          // Keep lower body seated on stool
+          applySeatedLowerBody();
+        }
+
+        // 2. Multi-track / user arm animation overlays on top of seated body
         if (isPlaying) {
           const speedFactor = isRecording ? parseFloat(recSpeedSelect.value) : 1.0;
           currentTime = (currentTime + delta * speedFactor) % ANIM_DURATION;
@@ -1529,9 +1588,7 @@
           timeDisplay.textContent = `${currentTime.toFixed(2)}s / ${ANIM_DURATION.toFixed(2)}s`;
 
           if (isRecording && animatedBoneNames.includes(currentTargetName)) {
-            // Overdub recording: record only the active selected bone!
             recordCurrentBonePose(currentTargetName, currentTime);
-            // Apply other bones from their recorded tracks
             animatedBoneNames.forEach(b => {
               if (b !== currentTargetName) {
                 const node = vrm.humanoid.getNormalizedBoneNode(b);
@@ -1540,9 +1597,11 @@
               }
             });
           } else {
-            // Normal playback: apply all bones from tracks
-            applyPoseAtTime(currentTime);
+            applyArmPosesAtTime(currentTime);
           }
+        } else {
+          // When paused or scrubbing, apply arm pose at currentTime
+          applyArmPosesAtTime(currentTime);
         }
 
         vrm.update(delta);
