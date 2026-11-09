@@ -2405,63 +2405,121 @@ class SettingsTabWidget(QWidget):
 # ==============================================================================
 class ModularSplitOverviewWidget(QWidget):
     """
-    Primary expanded view:
-    - Left Card: МЕДИА (Lil Jon track title, artist, progress bar, play/pause controls)
-    - Right Card: ПОГОДА & АСТРА (Live outdoor temperature + Astra companion status & actions)
+    Primary expanded view (Modular Split Studio Pro v4.0 - 52/48 Ratio):
+    - Left Card (52%):
+        * Header: 'МЕДИА' + 'Очистить'
+        * Compact Track Card (45px): [▶/⏸] [Get Low] [ılı] [✕]
+        * Media shelf: artist, timeline progress bar, prev/play/next transport
+    - Right Card (48%):
+        * Header: 'ПОГОДА & АСТРА' + 'Очистить'
+        * Panel 1: Большая уличная температура (⛅ +5°C, Москва (Отрадное) · Live) [✕]
+        * Panel 2: Влажность и ветер (💧 74% влажн.   •   💨 3.2 м/с) [✕]
+        * Panel 3: Облако диалога Астры (💬 «Мастер, я готова! Включить трек или барабаны?») [✕]
+        * Action Button: 🥁 Режим барабанов (Triggers 3D Astra drumming mocap with calibrated sticks!)
     """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.accent_color = "#F59E0B"
+        self.is_playing = True
 
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(4, 2, 4, 4)
-        main_layout.setSpacing(8)
+        main_layout.setSpacing(10)
 
-        # 1. Left Card: Media
+        # ----------------------------------------------------------------------
+        # 1. Left Card: МЕДИА (52% width)
+        # ----------------------------------------------------------------------
         self.media_card = QFrame()
         self.media_card.setObjectName("ModularMediaCard")
         media_layout = QVBoxLayout(self.media_card)
         media_layout.setContentsMargins(12, 10, 12, 10)
-        media_layout.setSpacing(6)
+        media_layout.setSpacing(8)
 
+        # Header Row
+        media_head_layout = QHBoxLayout()
         self.media_header = QLabel("МЕДИА")
         self.media_header.setObjectName("ModularMediaHeader")
-        media_layout.addWidget(self.media_header)
+        media_head_layout.addWidget(self.media_header)
+        media_head_layout.addStretch()
+
+        self.btn_clear_media = QPushButton("Очистить")
+        self.btn_clear_media.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear_media.setStyleSheet("color: #6B7280; font-size: 9px; background: transparent; border: none;")
+        self.btn_clear_media.clicked.connect(self._clear_media)
+        media_head_layout.addWidget(self.btn_clear_media)
+        media_layout.addLayout(media_head_layout)
+
+        # Compact Mini-track Bar (Height: 45px - User Layout Exact Specification)
+        self.mini_track_card = QFrame()
+        self.mini_track_card.setObjectName("MiniTrackCard")
+        self.mini_track_card.setFixedHeight(45)
+        mini_layout = QHBoxLayout(self.mini_track_card)
+        mini_layout.setContentsMargins(10, 4, 10, 4)
+        mini_layout.setSpacing(8)
+
+        self.btn_mini_play = QPushButton("▶")
+        self.btn_mini_play.setFixedSize(26, 26)
+        self.btn_mini_play.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_mini_play.setObjectName("MiniPlayBtn")
+        self.btn_mini_play.clicked.connect(lambda: send_vk(VK_MEDIA_PLAY_PAUSE))
+        mini_layout.addWidget(self.btn_mini_play)
 
         self.track_title = QLabel("Get Low")
         self.track_title.setObjectName("ModularTrackTitle")
         self.track_title.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: 800;")
-        media_layout.addWidget(self.track_title)
+        mini_layout.addWidget(self.track_title)
+
+        mini_layout.addStretch()
+
+        # Mini Animated Equalizer
+        self.eq_lbl = QLabel("ılı")
+        self.eq_lbl.setObjectName("EqualizerLabel")
+        self.eq_lbl.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: 900; letter-spacing: 2px;")
+        mini_layout.addWidget(self.eq_lbl)
+
+        self.btn_remove_track = QPushButton("✕")
+        self.btn_remove_track.setFixedSize(18, 18)
+        self.btn_remove_track.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_remove_track.setStyleSheet("color: #6B7280; background: transparent; border: none; font-size: 11px;")
+        self.btn_remove_track.clicked.connect(lambda: self.mini_track_card.setVisible(False))
+        mini_layout.addWidget(self.btn_remove_track)
+
+        media_layout.addWidget(self.mini_track_card)
+
+        # Secondary Media Info & Transport (artist + progress + controls)
+        self.media_sub_card = QFrame()
+        self.media_sub_card.setObjectName("MediaSubCard")
+        sub_layout = QVBoxLayout(self.media_sub_card)
+        sub_layout.setContentsMargins(8, 6, 8, 6)
+        sub_layout.setSpacing(6)
 
         self.artist_lbl = QLabel("Lil Jon & The East Side Boyz")
         self.artist_lbl.setStyleSheet("color: #9CA3AF; font-size: 10px; font-weight: 600;")
-        media_layout.addWidget(self.artist_lbl)
-
-        media_layout.addStretch()
+        sub_layout.addWidget(self.artist_lbl)
 
         self.prog_bar = QProgressBar()
         self.prog_bar.setFixedHeight(4)
         self.prog_bar.setTextVisible(False)
         self.prog_bar.setValue(65)
-        media_layout.addWidget(self.prog_bar)
+        sub_layout.addWidget(self.prog_bar)
 
         ctrl_layout = QHBoxLayout()
         ctrl_layout.setSpacing(8)
 
         self.btn_prev = QPushButton("⏮")
-        self.btn_prev.setFixedSize(26, 26)
+        self.btn_prev.setFixedSize(24, 24)
         self.btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_prev.setStyleSheet("color: #9CA3AF; background: transparent; border: none; font-size: 11px;")
         self.btn_prev.clicked.connect(lambda: send_vk(VK_MEDIA_PREV_TRACK))
 
         self.btn_play = QPushButton("⏸")
-        self.btn_play.setFixedSize(30, 30)
+        self.btn_play.setFixedSize(28, 28)
         self.btn_play.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_play.setObjectName("ModularPlayBtn")
         self.btn_play.clicked.connect(lambda: send_vk(VK_MEDIA_PLAY_PAUSE))
 
         self.btn_next = QPushButton("⏭")
-        self.btn_next.setFixedSize(26, 26)
+        self.btn_next.setFixedSize(24, 24)
         self.btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_next.setStyleSheet("color: #9CA3AF; background: transparent; border: none; font-size: 11px;")
         self.btn_next.clicked.connect(lambda: send_vk(VK_MEDIA_NEXT_TRACK))
@@ -2471,62 +2529,181 @@ class ModularSplitOverviewWidget(QWidget):
         ctrl_layout.addWidget(self.btn_next)
         ctrl_layout.addStretch()
 
-        media_layout.addLayout(ctrl_layout)
-        main_layout.addWidget(self.media_card, stretch=1)
+        sub_layout.addLayout(ctrl_layout)
+        media_layout.addWidget(self.media_sub_card)
 
-        # 2. Right Card: Weather & Astra Companion
+        media_layout.addStretch()
+        main_layout.addWidget(self.media_card, stretch=52)
+
+        # ----------------------------------------------------------------------
+        # 2. Right Card: ПОГОДА & АСТРА (48% width)
+        # ----------------------------------------------------------------------
         self.weather_card = QFrame()
         self.weather_card.setObjectName("ModularWeatherCard")
         weather_layout = QVBoxLayout(self.weather_card)
         weather_layout.setContentsMargins(12, 10, 12, 10)
         weather_layout.setSpacing(6)
 
+        # Header Row
+        weather_head_layout = QHBoxLayout()
         self.weather_header = QLabel("ПОГОДА & АСТРА")
         self.weather_header.setObjectName("ModularWeatherHeader")
-        weather_layout.addWidget(self.weather_header)
+        weather_head_layout.addWidget(self.weather_header)
+        weather_head_layout.addStretch()
 
+        self.btn_clear_weather = QPushButton("Очистить")
+        self.btn_clear_weather.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear_weather.setStyleSheet("color: #6B7280; font-size: 9px; background: transparent; border: none;")
+        self.btn_clear_weather.clicked.connect(self._clear_weather)
+        weather_head_layout.addWidget(self.btn_clear_weather)
+        weather_layout.addLayout(weather_head_layout)
+
+        # Panel 1: Большая уличная температура
+        self.weather_temp_card = QFrame()
+        self.weather_temp_card.setObjectName("WeatherTempCard")
+        temp_card_layout = QHBoxLayout(self.weather_temp_card)
+        temp_card_layout.setContentsMargins(10, 6, 8, 6)
+        temp_card_layout.setSpacing(6)
+
+        temp_text_layout = QVBoxLayout()
+        temp_text_layout.setSpacing(2)
         self.weather_temp_lbl = QLabel("⛅ +5°C")
         self.weather_temp_lbl.setStyleSheet("color: #FFFFFF; font-size: 16px; font-weight: 800; font-family: 'JetBrains Mono', 'Segoe UI', monospace;")
-        weather_layout.addWidget(self.weather_temp_lbl)
+        temp_text_layout.addWidget(self.weather_temp_lbl)
 
-        self.weather_desc_lbl = QLabel("Уличная температура · Live")
+        self.weather_desc_lbl = QLabel("Москва (Отрадное) · Live")
         self.weather_desc_lbl.setStyleSheet("color: #9CA3AF; font-size: 9px;")
-        weather_layout.addWidget(self.weather_desc_lbl)
+        temp_text_layout.addWidget(self.weather_desc_lbl)
+        temp_card_layout.addLayout(temp_text_layout)
 
-        weather_layout.addStretch()
+        temp_card_layout.addStretch()
 
-        self.companion_lbl = QLabel("👧🏻 Астра (Sendagaya Shino)")
+        self.btn_remove_temp = QPushButton("✕")
+        self.btn_remove_temp.setFixedSize(18, 18)
+        self.btn_remove_temp.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_remove_temp.setStyleSheet("color: #6B7280; background: transparent; border: none; font-size: 11px;")
+        self.btn_remove_temp.clicked.connect(lambda: self.weather_temp_card.setVisible(False))
+        temp_card_layout.addWidget(self.btn_remove_temp)
+
+        weather_layout.addWidget(self.weather_temp_card)
+
+        # Panel 2: Влажность и ветер
+        self.sensor_card = QFrame()
+        self.sensor_card.setObjectName("SensorCard")
+        sensor_layout = QHBoxLayout(self.sensor_card)
+        sensor_layout.setContentsMargins(10, 6, 8, 6)
+        sensor_layout.setSpacing(6)
+
+        self.sensor_lbl = QLabel("💧 74% влажн.   •   💨 3.2 м/с")
+        self.sensor_lbl.setStyleSheet("color: #E5E7EB; font-size: 11px; font-weight: 600;")
+        sensor_layout.addWidget(self.sensor_lbl)
+        sensor_layout.addStretch()
+
+        self.btn_remove_sensor = QPushButton("✕")
+        self.btn_remove_sensor.setFixedSize(18, 18)
+        self.btn_remove_sensor.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_remove_sensor.setStyleSheet("color: #6B7280; background: transparent; border: none; font-size: 11px;")
+        self.btn_remove_sensor.clicked.connect(lambda: self.sensor_card.setVisible(False))
+        sensor_layout.addWidget(self.btn_remove_sensor)
+
+        weather_layout.addWidget(self.sensor_card)
+
+        # Panel 3: Облако диалога Астры
+        self.dialogue_card = QFrame()
+        self.dialogue_card.setObjectName("DialogueCard")
+        dialogue_layout = QHBoxLayout(self.dialogue_card)
+        dialogue_layout.setContentsMargins(10, 6, 8, 6)
+        dialogue_layout.setSpacing(6)
+
+        self.dialogue_lbl = QLabel("💬 «Мастер, я готова! Включить трек или барабаны?»")
+        self.dialogue_lbl.setStyleSheet("color: #D1D5DB; font-size: 10px; font-style: italic;")
+        self.dialogue_lbl.setWordWrap(True)
+        dialogue_layout.addWidget(self.dialogue_lbl)
+        dialogue_layout.addStretch()
+
+        self.btn_remove_dialogue = QPushButton("✕")
+        self.btn_remove_dialogue.setFixedSize(18, 18)
+        self.btn_remove_dialogue.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_remove_dialogue.setStyleSheet("color: #6B7280; background: transparent; border: none; font-size: 11px;")
+        self.btn_remove_dialogue.clicked.connect(lambda: self.dialogue_card.setVisible(False))
+        dialogue_layout.addWidget(self.btn_remove_dialogue)
+
+        weather_layout.addWidget(self.dialogue_card)
+
+        # Action: Companion Status & Drum Button
+        self.companion_lbl = QLabel("👧🏻 Астра (Sendagaya Shino 3D)")
         self.companion_lbl.setStyleSheet("color: #E5E7EB; font-size: 10px; font-weight: 700;")
         weather_layout.addWidget(self.companion_lbl)
 
         self.btn_companion_action = QPushButton("🥁 Режим барабанов")
-        self.btn_companion_action.setFixedHeight(24)
+        self.btn_companion_action.setFixedHeight(28)
         self.btn_companion_action.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_companion_action.setObjectName("ModularCompanionBtn")
         self.btn_companion_action.clicked.connect(self._on_action_clicked)
         weather_layout.addWidget(self.btn_companion_action)
 
-        main_layout.addWidget(self.weather_card, stretch=1)
+        weather_layout.addStretch()
+        main_layout.addWidget(self.weather_card, stretch=48)
+
+        # Live Equalizer animation timer
+        self.eq_patterns = ["ılı", "lıl", "ııı", "ııl", "lıı"]
+        self.eq_idx = 0
+        self.eq_timer = QTimer(self)
+        self.eq_timer.setInterval(180)
+        self.eq_timer.timeout.connect(self._animate_eq)
+        self.eq_timer.start()
 
         self.update_accent_color(self.accent_color)
 
+    def _animate_eq(self):
+        self.eq_idx = (self.eq_idx + 1) % len(self.eq_patterns)
+        self.eq_lbl.setText(self.eq_patterns[self.eq_idx])
+
+    def _clear_media(self):
+        self.mini_track_card.setVisible(not self.mini_track_card.isVisible())
+
+    def _clear_weather(self):
+        visible = not self.weather_temp_card.isVisible()
+        self.weather_temp_card.setVisible(visible)
+        self.sensor_card.setVisible(visible)
+        self.dialogue_card.setVisible(visible)
+
     def _on_action_clicked(self):
         play_sound("click")
+        parent_window = self.window()
+        if hasattr(parent_window, "toggle_desktop_pet_drums"):
+            parent_window.toggle_desktop_pet_drums()
+        elif hasattr(parent_window, "toggle_desktop_pet"):
+            parent_window.toggle_desktop_pet()
+
         if "барабан" in self.btn_companion_action.text().lower():
             self.btn_companion_action.setText("✨ Стандартная поза")
+            self.dialogue_lbl.setText("🥁 «Рок-н-ролл! Барабанная установка активна!»")
         else:
             self.btn_companion_action.setText("🥁 Режим барабанов")
+            self.dialogue_lbl.setText("💬 «Мастер, я готова! Включить трек или барабаны?»")
 
     def update_accent_color(self, color_hex):
         self.accent_color = color_hex
-        border_rgba = hex_to_rgba(color_hex, 0.28)
+        border_rgba = hex_to_rgba(color_hex, 0.35)
         bg_card_rgba = "rgba(255, 255, 255, 0.03)"
+        mini_card_border = hex_to_rgba(color_hex, 0.5)
 
         self.setStyleSheet(f"""
             QFrame#ModularMediaCard, QFrame#ModularWeatherCard {{
                 background-color: {bg_card_rgba};
                 border: 1px solid {border_rgba};
-                border-radius: 16px;
+                border-radius: 18px;
+            }}
+            QFrame#MiniTrackCard {{
+                background-color: {hex_to_rgba(color_hex, 0.05)};
+                border: 1px solid {mini_card_border};
+                border-radius: 10px;
+            }}
+            QFrame#WeatherTempCard, QFrame#SensorCard, QFrame#DialogueCard, QFrame#MediaSubCard {{
+                background-color: rgba(255, 255, 255, 0.025);
+                border: 1px solid rgba(255, 255, 255, 0.07);
+                border-radius: 10px;
             }}
             QLabel#ModularMediaHeader, QLabel#ModularWeatherHeader {{
                 color: {color_hex};
@@ -2534,12 +2711,23 @@ class ModularSplitOverviewWidget(QWidget):
                 font-weight: 800;
                 letter-spacing: 1px;
             }}
+            QPushButton#MiniPlayBtn {{
+                background-color: {color_hex};
+                color: #000000;
+                font-size: 11px;
+                font-weight: 900;
+                border-radius: 13px;
+                border: none;
+            }}
+            QPushButton#MiniPlayBtn:hover {{
+                background-color: #FFFFFF;
+            }}
             QPushButton#ModularPlayBtn {{
                 background-color: {color_hex};
                 color: #000000;
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: 900;
-                border-radius: 15px;
+                border-radius: 14px;
                 border: none;
             }}
             QPushButton#ModularPlayBtn:hover {{
@@ -2549,13 +2737,16 @@ class ModularSplitOverviewWidget(QWidget):
                 background-color: rgba(255, 255, 255, 0.06);
                 border: 1px solid {border_rgba};
                 color: {color_hex};
-                font-size: 10px;
+                font-size: 11px;
                 font-weight: 700;
-                border-radius: 8px;
+                border-radius: 10px;
             }}
             QPushButton#ModularCompanionBtn:hover {{
-                background-color: {hex_to_rgba(color_hex, 0.18)};
+                background-color: {hex_to_rgba(color_hex, 0.20)};
                 color: #FFFFFF;
+            }}
+            QLabel#EqualizerLabel {{
+                color: {color_hex};
             }}
             QProgressBar {{
                 background-color: rgba(255, 255, 255, 0.1);
@@ -2568,9 +2759,16 @@ class ModularSplitOverviewWidget(QWidget):
         """)
 
     def update_media(self, title, artist, is_playing, pos_sec, dur_sec):
-        self.track_title.setText(title if title else "Get Low")
+        t_name = title if title else "Get Low"
+        self.track_title.setText(t_name)
         self.artist_lbl.setText(artist if artist else "Lil Jon & The East Side Boyz")
         self.btn_play.setText("⏸" if is_playing else "▶")
+        self.btn_mini_play.setText("⏸" if is_playing else "▶")
+        if is_playing and not self.eq_timer.isActive():
+            self.eq_timer.start()
+        elif not is_playing and self.eq_timer.isActive():
+            self.eq_timer.stop()
+            self.eq_lbl.setText("ılı")
         if dur_sec > 0:
             self.prog_bar.setValue(min(100, int((pos_sec / dur_sec) * 100)))
 
@@ -2680,8 +2878,8 @@ class TwoCodeIsland(QWidget):
 
         self.COLLAPSED_W = 210
         self.COLLAPSED_H = 34
-        self.EXPANDED_W = 460
-        self.EXPANDED_H = 270
+        self.EXPANDED_W = 488
+        self.EXPANDED_H = 361
         self.BT_W = 280
         self.BT_H = 54
 
@@ -2844,7 +3042,7 @@ class TwoCodeIsland(QWidget):
         self.brand_lbl.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 800;")
         top_bar.addWidget(self.brand_lbl)
 
-        self.accent_badge = QLabel("SPLIT HUD")
+        self.accent_badge = QLabel("SPLIT 52/48")
         self.accent_badge.setObjectName("AccentBadge")
         self.accent_badge.setStyleSheet(f"color: {self.accent_color}; font-size: 9px; font-weight: 800; font-family: monospace; background: {hex_to_rgba(self.accent_color, 0.15)}; border: 1px solid {hex_to_rgba(self.accent_color, 0.3)}; border-radius: 4px; padding: 1px 4px;")
         top_bar.addWidget(self.accent_badge)
@@ -3411,6 +3609,16 @@ class TwoCodeIsland(QWidget):
         self.save_config()
         if hasattr(self, "robo_tab"):
             self.robo_tab.update_pet_btn_state(False)
+
+    def toggle_desktop_pet_drums(self):
+        if not getattr(self, "desktop_pet", None) or not self.desktop_pet.isVisible():
+            self.spawn_desktop_pet()
+        if getattr(self, "desktop_pet", None):
+            self.desktop_pet.state = "dance"
+            self.desktop_pet.has_headphones = True
+            self.desktop_pet._sync_vrm_state()
+            if hasattr(self, "robo_tab"):
+                self.robo_tab.update_pet_btn_state(True)
 
     def toggle_desktop_pet(self):
         if getattr(self, "desktop_pet_enabled", False) and getattr(self, "desktop_pet", None) and self.desktop_pet.isVisible():

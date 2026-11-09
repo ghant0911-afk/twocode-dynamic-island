@@ -201,18 +201,22 @@
 
       if (leftHand) {
         stickL = createStick('stickL');
-        stickL.position.set(0.040, -0.012, 0.005);
-        // Calibrated matched grip angles matching reference pro drummer
-        stickL.rotation.set(-1.334, 0.139, -0.176);
+        // Anatomical grip inside the left fist:
+        stickL.position.set(-0.065, -0.012, -0.015);
+        // Calibrated matched grip pointing down-forward into snare drum
+        const lTarget = new THREE.Vector3(-0.935, 0.236, 0.266).normalize();
+        stickL.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), lTarget);
         stickL.visible = isDrumVisible;
         leftHand.add(stickL);
       }
 
       if (rightHand) {
         stickR = createStick('stickR');
-        stickR.position.set(-0.040, -0.012, 0.005);
-        // Calibrated matched grip angles matching reference pro drummer
-        stickR.rotation.set(0.126, -0.083, -1.168);
+        // Anatomical grip inside the right fist:
+        stickR.position.set(0.065, -0.012, -0.015);
+        // Calibrated matched grip pointing up-forward ready to strike cymbal
+        const rTarget = new THREE.Vector3(-0.034, 0.999, 0.021).normalize();
+        stickR.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), rTarget);
         stickR.visible = isDrumVisible;
         rightHand.add(stickR);
       }
