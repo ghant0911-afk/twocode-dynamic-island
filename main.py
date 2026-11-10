@@ -3743,7 +3743,11 @@ def start_vrm_server():
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "*")
-            self.send_header("Cache-Control", "public, max-age=3600")
+            path_l = getattr(self, "path", "").split("?")[0].lower()
+            if path_l.endswith((".html", ".json", ".js")):
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            else:
+                self.send_header("Cache-Control", "public, max-age=3600")
             super().end_headers()
 
     try:

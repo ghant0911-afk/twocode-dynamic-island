@@ -816,10 +816,10 @@
     // Drum Kit glTF — User's calibrated position applied
     let drumKit = null;
     window.drumKit = null;
-    const drumParams = {
-      pos: { x: 0.074878, y: 0.869019, z: 0.844478 },
+    let drumParams = {
+      pos: { x: -0.08, y: 0.72, z: 0.64 },
       rotY: 0.0,
-      scale: 0.68
+      scale: 0.56
     };
 
     const gltfLoader = new GLTFLoader();
@@ -901,16 +901,16 @@
     };
 
     // -------------------------------------------------------------------------
-    // 6. Authentic Forward-Reaching Drummer Posture (Arms reaching forward to drums)
+    // 6. Authentic Forward-Reaching Drummer Posture (Ergonomic Matched Grip)
     // -------------------------------------------------------------------------
     const forwardDrumPose = {
-      chest: { quat: [ -0.0775, -0.0033, 0.0076, 0.9970 ] },
-      leftUpperArm: { quat: [ -0.0290, 0.1583, -0.3470, -0.9240 ] },
-      leftLowerArm: { quat: [ 0.0000, -0.7443, 0.0000, 0.6678 ] },
-      leftHand: { quat: [ 0.2248, 0.0674, -0.0412, 0.9712 ] },
-      rightUpperArm: { quat: [ 0.0892, 0.4079, -0.3744, 0.8279 ] },
-      rightLowerArm: { quat: [ 0.0000, 0.8279, 0.0000, 0.5608 ] },
-      rightHand: { quat: [ 0.0963, -0.1818, -0.0009, 0.9786 ] }
+      chest: { quat: [ 0.068898, -0.156053, -0.010912, 0.985282 ] },
+      leftUpperArm: { quat: [ -0.125699, -0.106191, 0.508378, 0.845266 ] },
+      leftLowerArm: { quat: [ -0.147045, -0.457834, -0.019488, 0.876576 ] },
+      leftHand: { quat: [ 0.158145, 0.303049, -0.029931, 0.939286 ] },
+      rightUpperArm: { quat: [ -0.037550, 0.160208, -0.522339, 0.836711 ] },
+      rightLowerArm: { quat: [ 0.113007, 0.406970, -0.088144, 0.902128 ] },
+      rightHand: { quat: [ 0.413706, -0.186978, 0.176732, 0.873297 ] }
     };
 
     // Constant Seated Lower Body (Hips, Thighs, Shins, Feet) firmly planted on stool & pedals
@@ -960,7 +960,7 @@
     // -------------------------------------------------------------------------
     // 7. Multi-Track Animation Engine (Keyframes & Slerp Interpolator)
     // -------------------------------------------------------------------------
-    const ANIM_DURATION = 1.60;
+    let ANIM_DURATION = 1.60;
     window.ANIM_DURATION = ANIM_DURATION;
     let currentTime = 0.0;
     let isPlaying = false;
@@ -1243,7 +1243,10 @@
       if (k === 'w' || k === 'ц') setGizmoMode('translate');
       if (k === 'e' || k === 'у') setGizmoMode('rotate');
       if (k === 's' || k === 'ы') setGizmoMode('scale');
-      if (k === 'r' || k === 'к') btnModeSpace.click();
+      if (k === 'r' || k === 'к' || e.code === 'Space') {
+        if (e.code === 'Space') e.preventDefault();
+        btnModeSpace.click();
+      }
     });
 
     // -------------------------------------------------------------------------
@@ -1358,35 +1361,35 @@
     const posePresets = {
       ready: forwardDrumPose,
       snare_hit_L: {
-        chest: { quat: [ -0.0775, -0.0033, 0.0076, 0.9970 ] },
-        leftUpperArm: { quat: [ -0.08, 0.12, -0.38, -0.91 ] },
-        leftLowerArm: { quat: [ 0.12, -0.82, 0.05, 0.55 ] },
-        leftHand: { quat: [ 0.38, 0.05, -0.06, 0.92 ] }
+        chest: { quat: [ 0.092481, -0.140168, 0.003866, 0.985792 ] },
+        leftUpperArm: { quat: [ -0.135603, -0.119748, 0.513446, 0.838836 ] },
+        leftLowerArm: { quat: [ -0.178624, -0.446462, 0.041706, 0.875800 ] },
+        leftHand: { quat: [ 0.276556, 0.418730, -0.054285, 0.863270 ] }
       },
       hihat_hit_R: {
-        chest: { quat: [ -0.0775, -0.0033, 0.0076, 0.9970 ] },
-        rightUpperArm: { quat: [ 0.12, 0.42, -0.32, 0.84 ] },
-        rightLowerArm: { quat: [ -0.08, 0.88, 0.04, 0.46 ] },
-        rightHand: { quat: [ 0.28, -0.22, 0.02, 0.93 ] }
+        chest: { quat: [ 0.078775, -0.172432, -0.022191, 0.981616 ] },
+        rightUpperArm: { quat: [ -0.041316, 0.230802, -0.455259, 0.858931 ] },
+        rightLowerArm: { quat: [ 0.166049, 0.254616, 0.077933, 0.949486 ] },
+        rightHand: { quat: [ 0.429707, -0.118028, 0.181470, 0.876637 ] }
       },
       crash_both: {
-        chest: { quat: [ -0.12, 0.0, 0.0, 0.99 ] },
-        leftUpperArm: { quat: [ -0.10, 0.10, -0.35, -0.92 ] },
-        leftLowerArm: { quat: [ 0.15, -0.85, 0.08, 0.50 ] },
-        leftHand: { quat: [ 0.42, 0.06, -0.08, 0.90 ] },
-        rightUpperArm: { quat: [ 0.15, 0.40, -0.30, 0.85 ] },
-        rightLowerArm: { quat: [ -0.12, 0.90, 0.06, 0.42 ] },
-        rightHand: { quat: [ 0.32, -0.25, 0.03, 0.91 ] }
+        chest: { quat: [ 0.111809, -0.155429, -0.017709, 0.981339 ] },
+        leftUpperArm: { quat: [ -0.166799, -0.248381, 0.322834, 0.897921 ] },
+        leftLowerArm: { quat: [ -0.058974, -0.403296, -0.211842, 0.888255 ] },
+        leftHand: { quat: [ 0.266959, 0.363858, -0.053106, 0.890797 ] },
+        rightUpperArm: { quat: [ -0.042244, 0.296194, -0.360914, 0.883304 ] },
+        rightLowerArm: { quat: [ 0.179147, 0.245577, 0.127518, 0.944107 ] },
+        rightHand: { quat: [ 0.420216, -0.379001, 0.184725, 0.803528 ] }
       },
       windup_L: {
-        leftUpperArm: { quat: [ -0.15, 0.22, -0.15, -0.95 ] },
-        leftLowerArm: { quat: [ 0.00, -0.45, 0.00, 0.89 ] },
-        leftHand: { quat: [ 0.05, 0.02, 0.01, 0.99 ] }
+        leftUpperArm: { quat: [ -0.114374, -0.094449, 0.488148, 0.860064 ] },
+        leftLowerArm: { quat: [ -0.090153, -0.472342, -0.126171, 0.867667 ] },
+        leftHand: { quat: [ 0.151301, 0.027914, -0.033213, 0.987537 ] }
       },
       windup_R: {
-        rightUpperArm: { quat: [ 0.05, 0.48, -0.22, 0.84 ] },
-        rightLowerArm: { quat: [ 0.00, 0.52, 0.00, 0.85 ] },
-        rightHand: { quat: [ 0.02, -0.10, 0.01, 0.99 ] }
+        rightUpperArm: { quat: [ -0.025814, 0.216809, -0.425520, 0.878214 ] },
+        rightLowerArm: { quat: [ 0.185891, 0.258812, 0.140753, 0.937363 ] },
+        rightHand: { quat: [ 0.393873, -0.023320, 0.163997, 0.904117 ] }
       }
     };
 
@@ -1429,9 +1432,11 @@
       if (type === 'beat8') {
         setPoseAtTime('ready', 0.0);
         setPoseAtTime('hihat_hit_R', 0.20);
+        setPoseAtTime('windup_L', 0.20);
         setPoseAtTime('snare_hit_L', 0.40);
-        setPoseAtTime('hihat_hit_R', 0.60);
+        setPoseAtTime('windup_R', 0.60);
         setPoseAtTime('hihat_hit_R', 0.80);
+        setPoseAtTime('windup_L', 0.80);
         setPoseAtTime('snare_hit_L', 1.00);
         setPoseAtTime('hihat_hit_R', 1.20);
         setPoseAtTime('crash_both', 1.40);
@@ -1507,10 +1512,8 @@
     function loadProjectFromData(data) {
       if (!data) return;
       if (data.drumKit && window.drumKit) {
-        drumParams = data.drumKit;
-        window.drumKit.position.set(drumParams.pos.x, drumParams.pos.y, drumParams.pos.z);
-        window.drumKit.rotation.y = drumParams.rotY || 0;
-        window.drumKit.scale.setScalar(drumParams.scale || 0.68);
+        drumParams = JSON.parse(JSON.stringify(data.drumKit));
+        applyDrumParams();
         updateDrumSummary();
       }
       if (data.stickL && stickParams.stickL && window.stickL) {
@@ -1624,6 +1627,24 @@
         rightHand.add(stickR);
       }
 
+      // Curl fingers gently around the drumsticks for realistic matched grip
+      const h = vrm.humanoid;
+      ['left', 'right'].forEach(side => {
+        const s = (side === 'left') ? 1 : -1;
+        ['Index', 'Middle', 'Ring', 'Little'].forEach((f) => {
+          const prox = h.getNormalizedBoneNode(side + f + 'Proximal');
+          const inter = h.getNormalizedBoneNode(side + f + 'Intermediate');
+          const dist = h.getNormalizedBoneNode(side + f + 'Distal');
+          if (prox) prox.rotation.set(0, 0, s * 1.25);
+          if (inter) inter.rotation.set(0, 0, s * 1.35);
+          if (dist) dist.rotation.set(0, 0, s * 0.85);
+        });
+        const tProx = h.getNormalizedBoneNode(side + 'ThumbProximal');
+        const tDist = h.getNormalizedBoneNode(side + 'ThumbDistal');
+        if (tProx) tProx.rotation.set(0.3, s * 0.55, s * 0.45);
+        if (tDist) tDist.rotation.set(0.1, s * 0.35, s * 0.35);
+      });
+
       // Initialize default tracks (forward drum pose)
       initDefaultTracks();
       applySeatedLowerBody();
@@ -1640,6 +1661,9 @@
           if (data) {
             loadProjectFromData(data);
             console.log('Auto-loaded astra_drum_animation.json successfully');
+            if (new URLSearchParams(window.location.search).get('autoplay') === '1') {
+              startPlayback();
+            }
           }
         })
         .catch(() => {});

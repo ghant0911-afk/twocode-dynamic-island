@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Astra Sendagaya Shino 3D VRM Pet Pro</title>
+  <title>Astra Sendagaya Shino 3D VRM Pet Lite</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
@@ -43,22 +43,30 @@
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
     import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
-    import { loadMixamoAnimation } from './loadMixamoAnimation.js';
 
     const container = document.getElementById('canvas-container');
 
-    // 1. High Performance Transparent WebGL Renderer (0% CPU when idle, smooth 60 FPS)
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+    // 1. Lightweight Transparent WebGL Renderer (no preserveDrawingBuffer, pixelRatio 1 for low CPU/GPU)
+    const renderer = new THREE.WebGLRenderer({
+      antialias: false,
+      alpha: true,
+      preserveDrawingBuffer: false,
+      powerPreference: 'default'
+    });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.0));
-    renderer.setClearColor(0x000000, 0); // Complete alpha transparency
+    renderer.setPixelRatio(1);
+    renderer.setClearColor(0x000000, 0);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
 
-    // 2. Camera & Scene (Zero head-clipping framing, generous headroom above hair)
-    const camera = new THREE.PerspectiveCamera(32.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
-    camera.position.set(0.0, 0.72, 3.40);
-    camera.lookAt(0.0, 0.72, 0.0);
+    // 2. Camera & Scene (Full headroom & full drum kit clearance)
+    const camera = new THREE.PerspectiveCamera(33.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
+    const camStandPos = new THREE.Vector3(0.0, 0.74, 3.45);
+    const camStandLook = new THREE.Vector3(0.0, 0.74, 0.0);
+    const camDrumPos = new THREE.Vector3(0.0, 0.78, 4.22);
+    const camDrumLook = new THREE.Vector3(0.02, 0.62, 0.12);
+    camera.position.copy(camStandPos);
+    camera.lookAt(camStandLook);
 
     const scene = new THREE.Scene();
 
@@ -67,7 +75,7 @@
     window.camera = camera;
     window.THREE = THREE;
 
-    // 3. Studio Anime Lighting
+    // 3. Clean Anime Lighting
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.45);
     keyLight.position.set(1.0, 2.2, 2.0).normalize();
     scene.add(keyLight);
@@ -75,7 +83,7 @@
     const ambientLight = new THREE.AmbientLight(0xfff5f5, 1.05);
     scene.add(ambientLight);
 
-    const fillLight = new THREE.DirectionalLight(0xf472b6, 0.55);
+    const fillLight = new THREE.DirectionalLight(0xf472b6, 0.50);
     fillLight.position.set(-1.5, 1.2, -1.0).normalize();
     scene.add(fillLight);
 
@@ -83,54 +91,122 @@
     let mixer = null;
     const actions = {};
     const cachedVRMAs = {};
+    const loadingAnims = {};
     let currentAction = null;
     let currentState = 'idle';
     let currentDanceIndex = 0;
     let isTalking = false;
     let talkTimer = 0;
     let targetRotationY = Math.PI;
+    let isDrummingActive = false;
 
-    
-    // 3. Drum Kit Stage Group (Seat + Kit + Sticks)
+    // 4. Drum Kit Stage Group (Elevated slightly so pedals/bass drum never clip bottom taskbar)
     const drumStageGroup = new THREE.Group();
     drumStageGroup.name = 'drumStage';
     drumStageGroup.visible = false;
+    drumStageGroup.position.set(0.0, 0.10, 0.0);
     scene.add(drumStageGroup);
 
-    // Drum Throne (Stool)
+    // Stool (static matrices frozen after build)
     const stoolGroup = new THREE.Group();
     const cushion = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.18, 0.18, 0.08, 24),
+      new THREE.CylinderGeometry(0.18, 0.18, 0.08, 18),
       new THREE.MeshStandardMaterial({ color: 0x1f1f23, roughness: 0.35 })
     );
     cushion.position.y = 0.44;
     stoolGroup.add(cushion);
     const legMat = new THREE.MeshStandardMaterial({ color: 0xd0d5dd, metalness: 0.85, roughness: 0.15 });
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.44, 16), legMat);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.44, 10), legMat);
     stem.position.y = 0.22;
     stoolGroup.add(stem);
     for (let i = 0; i < 3; i++) {
       const angle = (i * 2 * Math.PI) / 3;
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.28, 12), legMat);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.28, 8), legMat);
       leg.position.set(Math.cos(angle) * 0.12, 0.14, Math.sin(angle) * 0.12);
       leg.rotation.z = Math.cos(angle) * 0.35;
       leg.rotation.x = -Math.sin(angle) * 0.35;
       stoolGroup.add(leg);
     }
     stoolGroup.position.set(0, 0, -0.05);
+    stoolGroup.traverse(o => { o.updateMatrix(); o.matrixAutoUpdate = false; });
     drumStageGroup.add(stoolGroup);
 
-    // 3D Drum Kit
+    // Calibrated 3D Drum Kit (lazy-loaded once or on demand, static matrices frozen!)
     const gltfLoader = new GLTFLoader();
     let drumKit = null;
-    gltfLoader.load('drum_kit.glb', (gltf) => {
-      drumKit = gltf.scene;
-      drumKit.scale.set(0.68, 0.68, 0.68);
-      drumKit.position.set(0, 0.40, 0.48);
-      drumKit.rotation.y = 0;
-      drumStageGroup.add(drumKit);
-      console.log('[AstraVRM] 3D Drum Kit attached to stage!');
-    });
+    let drumKitLoading = false;
+    let drumAnimData = null;
+    let drumTime = 0;
+    let drumDuration = 1.60;
+
+    const drumBoneNames = [
+      'chest',
+      'leftUpperArm', 'leftLowerArm', 'leftHand',
+      'rightUpperArm', 'rightLowerArm', 'rightHand'
+    ];
+
+    const seatedLowerBody = {
+      hips: { pos: [-0.098, 0.745, -0.020], quat: [0.1379, 0.2028, -0.0737, 0.9667] },
+      spine: { quat: [-0.1643, -0.0102, 0.0171, 0.9862] },
+      upperChest: { quat: [-0.0775, -0.0035, 0.0076, 0.9970] },
+      leftUpperLeg: { quat: [-0.4652, -0.0291, 0.0827, -0.8808] },
+      leftLowerLeg: { quat: [-0.6871, 0.0383, -0.0475, 0.7240] },
+      leftFoot: { quat: [0.2090, 0.0929, 0.0982, 0.9685] },
+      rightUpperLeg: { quat: [0.5189, -0.0648, 0.2310, 0.8205] },
+      rightLowerLeg: { quat: [-0.6939, -0.0284, -0.0328, 0.7188] },
+      rightFoot: { quat: [0.0299, -0.0020, -0.0567, 0.9979] }
+    };
+
+    function ensureDrumAssetsLoaded() {
+      if (!drumKit && !drumKitLoading) {
+        drumKitLoading = true;
+        gltfLoader.load('drum_kit.glb', (gltf) => {
+          drumKit = gltf.scene;
+          const dkPos = drumAnimData?.drumKit?.pos || { x: -0.08, y: 0.72, z: 0.64 };
+          const dkScale = drumAnimData?.drumKit?.scale || 0.56;
+          drumKit.position.set(dkPos.x, dkPos.y, dkPos.z);
+          drumKit.rotation.y = THREE.MathUtils.degToRad(drumAnimData?.drumKit?.rotY || 0);
+          drumKit.scale.setScalar(dkScale);
+          // Hide embedded Sketchfab floor plane & freeze static drum meshes to eliminate per-frame matrix math
+          drumKit.traverse(obj => {
+            if (obj.isMesh && obj.name && obj.name.toLowerCase().includes('plane')) {
+              obj.visible = false;
+            }
+            obj.updateMatrix();
+            obj.matrixAutoUpdate = false;
+          });
+          drumStageGroup.add(drumKit);
+          console.log('[AstraVRM] Lightweight static Drum Kit ready!');
+        });
+      }
+      if (!drumAnimData) {
+        fetch('astra_drum_animation.json')
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data) {
+              drumAnimData = data;
+              drumDuration = data.duration || 1.60;
+              if (drumKit && data.drumKit) {
+                drumKit.position.set(data.drumKit.pos.x, data.drumKit.pos.y, data.drumKit.pos.z);
+                drumKit.scale.setScalar(data.drumKit.scale || 0.56);
+                drumKit.updateMatrix();
+              }
+              console.log('[AstraVRM] Calibrated drum tracks loaded:', drumDuration + 's');
+            }
+          })
+          .catch(() => {});
+      }
+    }
+
+    // Load lightweight 15KB drum JSON on startup; load 5MB GLB lazily or smoothly
+    fetch('astra_drum_animation.json')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          drumAnimData = data;
+          drumDuration = data.duration || 1.60;
+        }
+      }).catch(() => {});
 
     let stickL = null;
     let stickR = null;
@@ -138,128 +214,148 @@
     function createStick(name) {
       const grp = new THREE.Group();
       grp.name = name || 'stick';
+      const woodMat = new THREE.MeshStandardMaterial({ color: 0xedd6af, roughness: 0.35, metalness: 0.05 });
 
-      // Authentic 5A Hickory Wood Material (Warm natural wood with delicate lacquer finish)
-      const woodMat = new THREE.MeshStandardMaterial({
-        color: 0xedd6af,
-        roughness: 0.35,
-        metalness: 0.05
-      });
-
-      // 1. Main Tapered Shaft: 32cm from fulcrum (radius 0.0070) down to neck (radius 0.0048)
-      const shaft = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.0048, 0.0070, 0.32, 16),
-        woodMat
-      );
-      shaft.position.y = 0.16; // spans 0 to +0.32
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0048, 0.0070, 0.32, 10), woodMat);
+      shaft.position.y = 0.16;
       grp.add(shaft);
 
-      // 2. Acorn Tip: realistic tear-drop wooden striking bead
-      const tip = new THREE.Mesh(
-        new THREE.SphereGeometry(0.0062, 16, 16),
-        woodMat
-      );
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.0062, 10, 10), woodMat);
       tip.position.y = 0.325;
       tip.scale.set(1.0, 1.4, 1.0);
       grp.add(tip);
 
-      // 3. Butt Shaft: 7cm extending below the fulcrum / hand
-      const buttShaft = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.0070, 0.0072, 0.07, 16),
-        woodMat
-      );
-      buttShaft.position.y = -0.035; // spans 0 to -0.07
+      const buttShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0070, 0.0072, 0.07, 10), woodMat);
+      buttShaft.position.y = -0.035;
       grp.add(buttShaft);
 
-      // 4. Rounded Butt Cap
-      const buttCap = new THREE.Mesh(
-        new THREE.SphereGeometry(0.0071, 14, 14),
-        woodMat
-      );
+      const buttCap = new THREE.Mesh(new THREE.SphereGeometry(0.0071, 8, 8), woodMat);
       buttCap.position.y = -0.07;
       grp.add(buttCap);
 
-      // 5. Classic manufacturer brand stripe on stick body
-      const brandBand = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.00705, 0.00705, 0.012, 16),
-        new THREE.MeshBasicMaterial({ color: 0x242424 })
-      );
+      const brandBand = new THREE.Mesh(new THREE.CylinderGeometry(0.00705, 0.00705, 0.012, 10), new THREE.MeshBasicMaterial({ color: 0x242424 }));
       brandBand.position.y = 0.025;
       grp.add(brandBand);
 
       return grp;
     }
 
+    function applyFingerGrip(vrm, curled) {
+      const h = vrm?.humanoid;
+      if (!h) return;
+      ['left', 'right'].forEach(side => {
+        const s = (side === 'left') ? 1 : -1;
+        ['Index', 'Middle', 'Ring', 'Little'].forEach((f) => {
+          const prox = h.getNormalizedBoneNode(side + f + 'Proximal');
+          const inter = h.getNormalizedBoneNode(side + f + 'Intermediate');
+          const dist = h.getNormalizedBoneNode(side + f + 'Distal');
+          if (prox) prox.rotation.set(0, 0, curled ? s * 1.25 : 0);
+          if (inter) inter.rotation.set(0, 0, curled ? s * 1.35 : 0);
+          if (dist) dist.rotation.set(0, 0, curled ? s * 0.85 : 0);
+        });
+        const tProx = h.getNormalizedBoneNode(side + 'ThumbProximal');
+        const tDist = h.getNormalizedBoneNode(side + 'ThumbDistal');
+        if (tProx) tProx.rotation.set(curled ? 0.3 : 0, curled ? s * 0.55 : 0, curled ? s * 0.45 : 0);
+        if (tDist) tDist.rotation.set(curled ? 0.1 : 0, curled ? s * 0.35 : 0, curled ? s * 0.35 : 0);
+      });
+    }
+
     function attachDrumsticks(vrm) {
       if (stickL && stickL.parent) stickL.parent.remove(stickL);
       if (stickR && stickR.parent) stickR.parent.remove(stickR);
 
-      // Attach directly to Hand bones (wrist/palm rigid frame) for authentic matched grip
       const leftHand = vrm.humanoid?.getNormalizedBoneNode('leftHand');
       const rightHand = vrm.humanoid?.getNormalizedBoneNode('rightHand');
-      const isDrumVisible = (currentState === 'dance' || currentState === 'drums' || currentState === 'drumming');
 
       if (leftHand) {
         stickL = createStick('stickL');
-        // User-calibrated matched grip (Astra 3D Studio):
         stickL.position.set(-0.0562, -0.0080, -0.0015);
         stickL.rotation.set(-0.262, -1.518, 1.267);
-        stickL.visible = isDrumVisible;
+        stickL.visible = isDrummingActive;
         leftHand.add(stickL);
       }
-
       if (rightHand) {
         stickR = createStick('stickR');
-        // User-calibrated matched grip (Astra 3D Studio):
         stickR.position.set(0.0487, -0.0043, -0.0063);
         stickR.rotation.set(-1.597, -0.044, -0.262);
-        stickR.visible = isDrumVisible;
+        stickR.visible = isDrummingActive;
         rightHand.add(stickR);
       }
     }
 
-    async function loadDrummingAnimation(vrm) {
-      try {
-        console.log('[AstraVRM] Loading Mixamo Drumming mocap...');
-        const clip = await loadMixamoAnimation('animations/Playing_Drums.fbx', vrm);
-        const action = mixer.clipAction(clip);
-        action.setLoop(THREE.LoopRepeat);
-        action.timeScale = 1.0;
-        actions['drumming'] = action;
-        console.log('[AstraVRM] Drumming animation ready!');
-      } catch (err) {
-        console.warn('[AstraVRM] Failed to load drumming mocap:', err);
+    // Reusable quaternions to keep GC zero-allocation during drumming loop!
+    const _q0 = new THREE.Quaternion();
+    const _q1 = new THREE.Quaternion();
+
+    function sampleDrumTrack(track, t) {
+      if (!track || track.length === 0) return null;
+      if (track.length === 1) return track[0].q;
+      if (t <= track[0].time) return track[0].q;
+      if (t >= track[track.length - 1].time) return track[track.length - 1].q;
+
+      let i0 = 0;
+      for (let i = 0; i < track.length - 1; i++) {
+        if (track[i].time <= t && t <= track[i + 1].time) {
+          i0 = i;
+          break;
+        }
+      }
+      const k0 = track[i0];
+      const k1 = track[i0 + 1];
+      const alpha = (t - k0.time) / Math.max(0.0001, k1.time - k0.time);
+      _q0.fromArray(k0.q);
+      _q1.fromArray(k1.q);
+      _q0.slerp(_q1, alpha);
+      return _q0;
+    }
+
+    function applyDrummingFrame(vrm, t) {
+      const h = vrm.humanoid;
+      if (!h) return;
+
+      // 1. Lock seated lower body smoothly at stage elevation
+      for (const [bone, data] of Object.entries(seatedLowerBody)) {
+        const node = h.getNormalizedBoneNode(bone);
+        if (node) {
+          if (data.pos) node.position.fromArray(data.pos);
+          if (data.quat) node.quaternion.fromArray(data.quat);
+        }
+      }
+
+      // 2. Apply slerped arm + chest keyframes from calibrated astra_drum_animation.json
+      if (drumAnimData?.tracks) {
+        for (const bName of drumBoneNames) {
+          const node = h.getNormalizedBoneNode(bName);
+          const track = drumAnimData.tracks[bName];
+          if (node && track) {
+            const res = sampleDrumTrack(track, t);
+            if (res) {
+              if (Array.isArray(res)) node.quaternion.fromArray(res);
+              else node.quaternion.copy(res);
+            }
+          }
+        }
       }
     }
 
-    // Realistic Biological Speeds (Natural Tempo)
     const speedMap = {
-      idle: 0.85,        // Calming, deep natural breath (~14 bpm)
-      walk: 0.50,        // Calm gentle human walking cadence
-      picked_up: 0.85,   // Soft floating air dangle
-      falling: 0.90,     // Free fall suspension
-      hurt: 0.80,        // Dazed recovery
-      sit: 0.75,         // Gentle sitting
-      wave: 0.95,        // Cheerful hand wave
-      celebrate: 0.90,   // Joyful jump
-      talk: 0.85,        // Expressive conversational gestures
-      drumming: 1.0,        // Authentic Rock Drumming
-      dance_1: 0.88,     // Smooth pop groove
-      dance_2: 0.88,     // Stylish anime groove
-      hiphop: 0.88,      // Clean hip hop tempo
-      twist_dance: 0.85, // Rhythm twist
-      silly_dance: 0.85  // Cute anime dance
+      idle: 0.85,
+      walk: 0.50,
+      picked_up: 0.85,
+      falling: 0.90,
+      hurt: 0.80,
+      sit: 0.75,
+      wave: 0.95,
+      celebrate: 0.90,
+      talk: 0.85,
+      dance_1: 0.88,
+      dance_2: 0.88,
+      hiphop: 0.88,
+      twist_dance: 0.85,
+      silly_dance: 0.85
     };
 
-    // Selected In-Place Dance Choreographies that stay centered
-    const danceNames = [
-      'dance_1',
-      'dance_2',
-      'hiphop',
-      'twist_dance',
-      'silly_dance',
-      'celebrate'
-    ];
+    const danceNames = ['dance_1', 'dance_2', 'hiphop', 'twist_dance', 'silly_dance', 'celebrate'];
 
     const animConfig = {
       idle: 'animations/idle_loop.vrma',
@@ -278,7 +374,6 @@
       silly_dance: 'animations/silly_dance.vrma'
     };
 
-    // Smooth Look-at Tracking
     const lookAtTarget = new THREE.Object3D();
     lookAtTarget.position.set(0, 1.35, 10.0);
     scene.add(lookAtTarget);
@@ -286,49 +381,34 @@
     const desiredLookAt = new THREE.Vector3(0, 1.35, 10.0);
     let lastMouseMoveTime = Date.now();
 
-    // 4. VRM & Animation Loader
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
     loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
-    /**
-     * Sanitizes and normalizes animation tracks to ensure the character
-     * stays strictly in-place at natural standing/sitting height and NEVER
-     * drifts off-screen or falls below the floor.
-     */
     function sanitizeClip(clip, vrm, animKey) {
       const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
       const restY = hips ? hips.position.y : 0.893;
-
       clip.tracks.forEach(track => {
         if (track.name.endsWith('.position')) {
           const vals = track.values;
           const count = vals.length / 3;
           if (count === 0) return;
-
           let sumX = 0, sumY = 0, sumZ = 0;
           for (let i = 0; i < count; i++) {
             sumX += vals[i * 3];
             sumY += vals[i * 3 + 1];
             sumZ += vals[i * 3 + 2];
           }
-          const avgX = sumX / count;
-          const avgY = sumY / count;
-          const avgZ = sumZ / count;
-
+          const avgX = sumX / count, avgY = sumY / count, avgZ = sumZ / count;
           const isSit = animKey === 'sit';
           const isHurt = animKey === 'hurt';
           let targetY = restY;
           if (isSit) targetY = restY * 0.62;
           if (isHurt) targetY = restY * 0.32;
-
           for (let i = 0; i < count; i++) {
-            // Center X horizontally with damped natural sway (±0.15m max)
             vals[i * 3 + 0] = (vals[i * 3 + 0] - avgX) * 0.45;
-            // Center Y at natural hips height, preserving vertical bounce
             const newY = targetY + (vals[i * 3 + 1] - avgY);
             vals[i * 3 + 1] = Math.max(0.28, Math.min(1.4, newY));
-            // Center Z depth
             vals[i * 3 + 2] = (vals[i * 3 + 2] - avgZ) * 0.35;
           }
         }
@@ -336,11 +416,50 @@
       return clip;
     }
 
+    // Lazy on-demand VRMA loader (saves ~250MB RAM and eliminates startup stutters!)
+    async function ensureActionLoaded(key, vrm) {
+      if (actions[key]) return actions[key];
+      if (!vrm || !animConfig[key]) return null;
+      if (loadingAnims[key]) return loadingAnims[key];
+
+      loadingAnims[key] = (async () => {
+        try {
+          let vrma = cachedVRMAs[key];
+          if (!vrma) {
+            const animGltf = await loader.loadAsync(animConfig[key]);
+            vrma = animGltf.userData.vrmAnimations?.[0];
+            if (vrma) cachedVRMAs[key] = vrma;
+          }
+          if (vrma && currentVRM === vrm && mixer) {
+            const rawClip = createVRMAnimationClip(vrma, vrm);
+            const sanitizedClip = sanitizeClip(rawClip, vrm, key);
+            const action = mixer.clipAction(sanitizedClip);
+            if (key === 'hurt' || key === 'wave' || key === 'celebrate') {
+              action.setLoop(THREE.LoopOnce);
+              action.clampWhenFinished = true;
+            } else {
+              action.setLoop(THREE.LoopRepeat);
+            }
+            const naturalSpeed = speedMap[key] || 0.90;
+            action.timeScale = naturalSpeed;
+            actions[key] = action;
+            return action;
+          }
+        } catch (e) {
+          console.warn('[AstraVRM] Lazy load anim error:', key, e);
+        } finally {
+          delete loadingAnims[key];
+        }
+        return null;
+      })();
+
+      return loadingAnims[key];
+    }
+
     async function init() {
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const initialModel = urlParams.get('model') || 'Sendagaya_Shino.vrm';
-        console.log('[AstraVRM] Loading 3D Avatar:', initialModel);
         const gltf = await loader.loadAsync(initialModel);
         const vrm = gltf.userData.vrm;
         VRMUtils.removeUnnecessaryVertices(gltf.scene);
@@ -350,73 +469,20 @@
         currentVRM = vrm;
         window.currentVRM = vrm;
 
-        // Face forward towards camera
         vrm.scene.rotation.y = Math.PI;
         attachDrumsticks(vrm);
 
-        // Setup lookAt target
-        if (vrm.lookAt) {
-          vrm.lookAt.target = lookAtTarget;
-        }
+        if (vrm.lookAt) vrm.lookAt.target = lookAtTarget;
 
-        // Animation Mixer
         mixer = new THREE.AnimationMixer(vrm.scene);
         window.mixer = mixer;
-        attachDrumsticks(vrm);
         window.actions = actions;
-        // Priority 1: Load Idle and Rock Drumming mocap immediately for instant responsiveness
-        try {
-          const idleGltf = await loader.loadAsync(animConfig.idle);
-          const vrma = idleGltf.userData.vrmAnimations?.[0];
-          if (vrma) {
-            cachedVRMAs['idle'] = vrma;
-            const rawClip = createVRMAnimationClip(vrma, vrm);
-            const sanitizedClip = sanitizeClip(rawClip, vrm, 'idle');
-            const action = mixer.clipAction(sanitizedClip);
-            action.setLoop(THREE.LoopRepeat);
-            action.timeScale = speedMap.idle || 0.85;
-            actions['idle'] = action;
-          }
-        } catch (e) {
-          console.warn('[AstraVRM] Could not load idle anim:', e);
-        }
 
-        await loadDrummingAnimation(vrm);
-        console.log('[AstraVRM] Core actions loaded:', Object.keys(actions));
-
-        // Start in gentle idle immediately!
-        playAction('idle', 0.25);
+        // Only load lightweight idle animation upfront!
+        await ensureActionLoaded('idle', vrm);
+        playAction('idle', 0.20);
         window.isPetReady = true;
-
-        // Priority 2: Preload secondary animations in background non-blocking
-        (async () => {
-          for (const [key, path] of Object.entries(animConfig)) {
-            if (key === 'idle') continue;
-            try {
-              const animGltf = await loader.loadAsync(path);
-              const vrma = animGltf.userData.vrmAnimations?.[0];
-              if (vrma) {
-                cachedVRMAs[key] = vrma;
-                const rawClip = createVRMAnimationClip(vrma, vrm);
-                const sanitizedClip = sanitizeClip(rawClip, vrm, key);
-                const action = mixer.clipAction(sanitizedClip);
-                if (key === 'hurt' || key === 'wave' || key === 'celebrate') {
-                  action.setLoop(THREE.LoopOnce);
-                  action.clampWhenFinished = true;
-                } else {
-                  action.setLoop(THREE.LoopRepeat);
-                }
-                const naturalSpeed = speedMap[key] || 0.90;
-                action.timeScale = naturalSpeed;
-                actions[key] = action;
-              }
-            } catch (e) {
-              console.warn('[AstraVRM] Could not load anim:', key, e);
-            }
-          }
-          console.log('[AstraVRM] All background actions ready:', Object.keys(actions));
-        })();
-        window.isPetReady = true;
+        console.log('[AstraVRM] Lightweight pet ready!');
       } catch (err) {
         console.error('[AstraVRM] Initialization error:', err);
       }
@@ -424,7 +490,6 @@
 
     window.switchVRMModel = async function(modelFileName) {
       try {
-        console.log('[AstraVRM] Switching model to:', modelFileName);
         if (!modelFileName) return;
         if (currentVRM) {
           scene.remove(currentVRM.scene);
@@ -439,62 +504,32 @@
         scene.add(vrm.scene);
         currentVRM = vrm;
         window.currentVRM = vrm;
-
         vrm.scene.rotation.y = targetRotationY;
-        if (vrm.lookAt) {
-          vrm.lookAt.target = lookAtTarget;
-        }
+        if (vrm.lookAt) vrm.lookAt.target = lookAtTarget;
 
         mixer = new THREE.AnimationMixer(vrm.scene);
         window.mixer = mixer;
-
         for (const k in actions) delete actions[k];
 
-        for (const [key, vrma] of Object.entries(cachedVRMAs)) {
-          try {
-            const rawClip = createVRMAnimationClip(vrma, vrm);
-            const sanitizedClip = sanitizeClip(rawClip, vrm, key);
-            const action = mixer.clipAction(sanitizedClip);
-            if (key === 'hurt' || key === 'wave' || key === 'celebrate') {
-              action.setLoop(THREE.LoopOnce);
-              action.clampWhenFinished = true;
-            } else {
-              action.setLoop(THREE.LoopRepeat);
-            }
-            const naturalSpeed = speedMap[key] || 0.90;
-            action.timeScale = naturalSpeed;
-            action.setEffectiveTimeScale(naturalSpeed);
-            actions[key] = action;
-          } catch (e) {
-            console.warn('Error binding anim:', key, e);
-          }
-        }
+        await ensureActionLoaded('idle', vrm);
         attachDrumsticks(vrm);
-        await loadDrummingAnimation(vrm);
         currentAction = null;
         window.setPetState(currentState || 'idle');
-        console.log('[AstraVRM] Switched to model successfully:', modelFileName);
       } catch (err) {
         console.error('[AstraVRM] Model switch error:', err);
       }
     };
 
-    function playAction(name, fadeDuration = 0.32) {
-      if (!mixer) return;
-      const nextAction = actions[name];
+    async function playAction(name, fadeDuration = 0.30) {
+      if (!mixer || !currentVRM) return;
+      const vrmRef = currentVRM;
+      let nextAction = actions[name];
       if (!nextAction) {
-        console.warn('[AstraVRM] Action not found:', name);
-        return;
+        nextAction = await ensureActionLoaded(name, vrmRef);
       }
-
-      if (currentAction === nextAction && nextAction.isRunning()) {
-        return;
-      }
-
-      const isDrum = (name === 'drumming' || ((currentState === 'dance' || currentState === 'drums' || currentState === 'drumming') && name === 'dance_2'));
-      drumStageGroup.visible = isDrum;
-      if (stickL) stickL.visible = isDrum;
-      if (stickR) stickR.visible = isDrum;
+      if (!nextAction || currentVRM !== vrmRef) return;
+      if (isDrummingActive) return; // Don't clobber drumming mode if async fetch finished late!
+      if (currentAction === nextAction && nextAction.isRunning()) return;
 
       nextAction.reset();
       const naturalSpeed = speedMap[name] || 0.90;
@@ -514,70 +549,71 @@
     // 5. Global API exposed to Python PyQt6
     window.setPetState = (state, facingDirection) => {
       currentState = state || 'idle';
-      if (!currentVRM?.expressionManager) return;
+      if (currentVRM?.expressionManager) {
+        ['happy', 'relaxed', 'surprised', 'sad', 'angry'].forEach(e => {
+          currentVRM.expressionManager.setValue(e, 0);
+        });
+      }
 
-      // Soft reset expressions
-      ['happy', 'relaxed', 'surprised', 'sad', 'angry'].forEach(e => {
-        currentVRM.expressionManager.setValue(e, 0);
-      });
-
-      // Update Facing Angle smoothly
       if (facingDirection !== undefined) {
-        if (facingDirection < 0) {
-          targetRotationY = Math.PI - 0.35; // turned slightly left
-        } else if (facingDirection > 0) {
-          targetRotationY = Math.PI + 0.35; // turned slightly right
-        } else {
-          targetRotationY = Math.PI;
-        }
+        if (facingDirection < 0) targetRotationY = Math.PI - 0.35;
+        else if (facingDirection > 0) targetRotationY = Math.PI + 0.35;
+        else targetRotationY = Math.PI;
       } else {
         targetRotationY = Math.PI;
       }
 
-      const isDrumming = (currentState === 'dance' || currentState === 'drums' || currentState === 'drumming');
-      if (!isDrumming) {
-        drumStageGroup.visible = false;
-        if (stickL) stickL.visible = false;
-        if (stickR) stickR.visible = false;
+      const wantDrumming = (currentState === 'dance' || currentState === 'drums' || currentState === 'drumming');
+      isDrummingActive = wantDrumming;
+      drumStageGroup.visible = wantDrumming;
+      if (stickL) stickL.visible = wantDrumming;
+      if (stickR) stickR.visible = wantDrumming;
+
+      if (wantDrumming) {
+        ensureDrumAssetsLoaded();
+        if (currentAction) {
+          currentAction.stop();
+          currentAction = null;
+        }
+        applyFingerGrip(currentVRM, true);
+        currentVRM?.expressionManager?.setValue('happy', 0.95);
+        currentVRM?.expressionManager?.setValue('relaxed', 0.2);
+        targetRotationY = Math.PI;
+        drumTime = 0;
+        if (currentVRM) applyDrummingFrame(currentVRM, 0);
+        return;
+      } else {
+        applyFingerGrip(currentVRM, false);
       }
 
-      if (isDrumming) {
-        currentVRM.expressionManager?.setValue('happy', 0.95);
-        currentVRM.expressionManager?.setValue('relaxed', 0.2);
-        targetRotationY = Math.PI; // Face directly forward behind the drum kit
-        if (actions['drumming']) {
-          playAction('drumming', 0.35);
-        } else {
-          playAction('dance_2', 0.35);
-        }
-      } else if (currentState === 'picked_up' || currentState === 'falling') {
-          currentVRM.expressionManager?.setValue('surprised', 1.0);
-          playAction('picked_up', 0.2);
-        } else if (currentState === 'hurt') {
-          currentVRM.expressionManager?.setValue('sad', 0.9);
-          currentVRM.expressionManager?.setValue('blink', 0.8);
-          playAction('hurt', 0.15);
-        } else if (currentState === 'sit') {
-          currentVRM.expressionManager?.setValue('relaxed', 1.0);
-          playAction('sit', 0.4);
-        } else if (currentState === 'walk') {
-          currentVRM.expressionManager?.setValue('relaxed', 0.3);
-          playAction('walk', 0.25);
-        } else if (currentState === 'wave') {
-          currentVRM.expressionManager?.setValue('happy', 1.0);
-          playAction('wave', 0.25);
-        } else if (currentState === 'celebrate') {
-          currentVRM.expressionManager?.setValue('happy', 1.0);
-          playAction('celebrate', 0.25);
-        } else {
-          // Idle: pleasant gentle warmth
-          currentVRM.expressionManager?.setValue('relaxed', 0.35);
-          currentVRM.expressionManager?.setValue('happy', 0.15);
-          playAction('idle', 0.35);
-        }
+      if (currentState === 'picked_up' || currentState === 'falling') {
+        currentVRM?.expressionManager?.setValue('surprised', 1.0);
+        playAction('picked_up', 0.2);
+      } else if (currentState === 'hurt') {
+        currentVRM?.expressionManager?.setValue('sad', 0.9);
+        currentVRM?.expressionManager?.setValue('blink', 0.8);
+        playAction('hurt', 0.15);
+      } else if (currentState === 'sit') {
+        currentVRM?.expressionManager?.setValue('relaxed', 1.0);
+        playAction('sit', 0.35);
+      } else if (currentState === 'walk') {
+        currentVRM?.expressionManager?.setValue('relaxed', 0.3);
+        playAction('walk', 0.25);
+      } else if (currentState === 'wave') {
+        currentVRM?.expressionManager?.setValue('happy', 1.0);
+        playAction('wave', 0.25);
+      } else if (currentState === 'celebrate') {
+        currentVRM?.expressionManager?.setValue('happy', 1.0);
+        playAction('celebrate', 0.25);
+      } else {
+        currentVRM?.expressionManager?.setValue('relaxed', 0.35);
+        currentVRM?.expressionManager?.setValue('happy', 0.15);
+        playAction('idle', 0.35);
+      }
     };
 
     window.setFacing = (facing) => {
+      if (isDrummingActive) { targetRotationY = Math.PI; return; }
       if (facing < 0) targetRotationY = Math.PI - 0.35;
       else if (facing > 0) targetRotationY = Math.PI + 0.35;
       else targetRotationY = Math.PI;
@@ -586,7 +622,7 @@
     window.setTalking = (talking) => {
       isTalking = Boolean(talking);
       if (isTalking) {
-        if (actions['talk'] && (currentState === 'idle' || currentState === 'sit')) {
+        if (!isDrummingActive && (currentState === 'idle' || currentState === 'sit')) {
           playAction('talk', 0.25);
         }
       } else {
@@ -595,7 +631,7 @@
           currentVRM.expressionManager.setValue('oh', 0);
           currentVRM.expressionManager.setValue('ih', 0);
         }
-        if (currentState === 'idle') {
+        if (!isDrummingActive && currentState === 'idle') {
           playAction('idle', 0.3);
         }
       }
@@ -608,6 +644,11 @@
     };
 
     window.nextDance = () => {
+      isDrummingActive = false;
+      drumStageGroup.visible = false;
+      if (stickL) stickL.visible = false;
+      if (stickR) stickR.visible = false;
+      applyFingerGrip(currentVRM, false);
       currentDanceIndex++;
       const chosen = danceNames[currentDanceIndex % danceNames.length];
       playAction(chosen, 0.35);
@@ -615,83 +656,86 @@
     };
     window.cycleDance = window.nextDance;
 
-    window.triggerWave = () => {
-      window.setPetState('wave');
-    };
+    window.triggerWave = () => window.setPetState('wave');
+    window.triggerJump = () => window.setPetState('celebrate');
 
-    window.triggerJump = () => {
-      window.setPetState('celebrate');
-    };
-
-    // Track mouse over pet window
+    let lastMouseEventTs = 0;
     window.addEventListener('mousemove', (e) => {
+      const now = performance.now();
+      if (now - lastMouseEventTs < 80) return;
+      lastMouseEventTs = now;
       const normX = (e.clientX / window.innerWidth) * 2 - 1;
       const normY = (e.clientY / window.innerHeight) * 2 - 1;
       window.setLookAt(normX, normY);
     });
 
-    // 6. 3D Render & Natural Animation Loop (Silky 60 FPS)
-    const clock = new THREE.Clock();
-
-    // Natural Eye Blinking State Machine
+    // 6. Lightweight Throttled Render Loop (30 FPS active / 18 FPS idle -> low CPU!)
+    let lastFrameTime = performance.now();
+    let elapsedTotal = 0;
     let blinkTimer = 2.0;
     let isBlinking = false;
     let blinkProgress = 0;
+    const _curLookTarget = new THREE.Vector3().copy(camStandLook);
 
-    function animate() {
+    function animate(now) {
       requestAnimationFrame(animate);
-      const delta = clock.getDelta();
-      const time = clock.getElapsedTime();
 
-      if (mixer) {
-        mixer.update(delta);
+      const isActive = isDrummingActive || currentState === 'walk' || currentState === 'picked_up' || currentState === 'falling' || currentState === 'wave' || currentState === 'celebrate' || isTalking;
+      const minInterval = isActive ? 32 : 52; // ~30 FPS active, ~19 FPS idle
+      const elapsedMs = now - lastFrameTime;
+      if (elapsedMs < minInterval) return;
+
+      lastFrameTime = now - (elapsedMs % minInterval);
+      const delta = Math.min(elapsedMs / 1000, 0.08);
+      elapsedTotal += delta;
+
+      // Smoothly interpolate camera framing between standing and seated drumming
+      const targetCamPos = isDrummingActive ? camDrumPos : camStandPos;
+      const targetCamLook = isDrummingActive ? camDrumLook : camStandLook;
+      if (camera.position.distanceToSquared(targetCamPos) > 0.0001) {
+        camera.position.lerp(targetCamPos, 0.14);
+        _curLookTarget.lerp(targetCamLook, 0.14);
+        camera.lookAt(_curLookTarget);
       }
 
       if (currentVRM) {
-        // VRM update handles expressionManager, lookAt, and springBoneManager (hair/hoodie physics)
-        currentVRM.update(delta);
-
-        // Hardware safety guard: ensure hips position never drops below ground or drifts
-        const hips = currentVRM.humanoid?.getNormalizedBoneNode('hips');
-          if (hips) {
-            if (hips.position.y < 0.25) {
-              hips.position.y = 0.893;
-            }
-            if (Math.abs(hips.position.x) > 0.45) {
-              hips.position.x = Math.sign(hips.position.x) * 0.45;
-            }
-            if (Math.abs(hips.position.z) > 0.45) {
-              hips.position.z = Math.sign(hips.position.z) * 0.45;
-            }
-          }
-
-        // Smoothly interpolate rotation facing
-        currentVRM.scene.rotation.y += (targetRotationY - currentVRM.scene.rotation.y) * 0.12;
-
-        // Ambient glance wanderer when mouse cursor is not moving
-        if (Date.now() - lastMouseMoveTime > 2500) {
-          const wanderX = Math.sin(time * 0.45) * 0.7;
-          const wanderY = 1.35 + Math.cos(time * 0.3) * 0.25;
-          desiredLookAt.set(wanderX, wanderY, 10.0);
+        if (isDrummingActive) {
+          drumTime = (drumTime + delta) % drumDuration;
+          applyDrummingFrame(currentVRM, drumTime);
+        } else if (mixer) {
+          mixer.update(delta);
         }
 
-        // Smoothly interpolate lookAt target
-        lookAtTarget.position.lerp(desiredLookAt, 0.08);
+        currentVRM.update(delta);
 
-        // Natural Human Eye Blinking with micro double-blinks
-        if (currentState !== 'hurt' && currentState !== 'dance') {
+        // Hips height guard ONLY when NOT seated drumming
+        if (!isDrummingActive) {
+          const hips = currentVRM.humanoid?.getNormalizedBoneNode('hips');
+          if (hips) {
+            if (hips.position.y < 0.25) hips.position.y = 0.893;
+            if (Math.abs(hips.position.x) > 0.45) hips.position.x = Math.sign(hips.position.x) * 0.45;
+            if (Math.abs(hips.position.z) > 0.45) hips.position.z = Math.sign(hips.position.z) * 0.45;
+          }
+        }
+
+        currentVRM.scene.rotation.y += (targetRotationY - currentVRM.scene.rotation.y) * 0.15;
+
+        if (Date.now() - lastMouseMoveTime > 2500) {
+          desiredLookAt.set(Math.sin(elapsedTotal * 0.45) * 0.6, 1.35 + Math.cos(elapsedTotal * 0.3) * 0.2, 10.0);
+        }
+        lookAtTarget.position.lerp(desiredLookAt, 0.10);
+
+        if (currentState !== 'hurt' && !isDrummingActive) {
           blinkTimer -= delta;
           if (blinkTimer <= 0) {
             isBlinking = true;
             blinkProgress = 0;
-            // Next blink in 2.5 to 5.5 seconds (occasional quick double blink)
             blinkTimer = (Math.random() < 0.22) ? 0.32 : (2.5 + Math.random() * 3.0);
           }
           if (isBlinking) {
-            blinkProgress += delta * 12.0; // quick 150ms natural eyelid closure
+            blinkProgress += delta * 12.0;
             if (blinkProgress < Math.PI) {
-              const val = Math.sin(blinkProgress);
-              currentVRM.expressionManager?.setValue('blink', val);
+              currentVRM.expressionManager?.setValue('blink', Math.sin(blinkProgress));
             } else {
               currentVRM.expressionManager?.setValue('blink', 0.0);
               isBlinking = false;
@@ -699,22 +743,18 @@
           }
         }
 
-        // Real-time lip-sync mouth vowels with natural speech modulation
         if (isTalking) {
           talkTimer += delta * 12.0;
-          const openA = Math.max(0, Math.sin(talkTimer)) * 0.65;
-          const openO = Math.max(0, Math.cos(talkTimer * 0.75)) * 0.45;
-          const openI = Math.max(0, Math.sin(talkTimer * 1.3)) * 0.35;
-          currentVRM.expressionManager?.setValue('aa', openA);
-          currentVRM.expressionManager?.setValue('oh', openO);
-          currentVRM.expressionManager?.setValue('ih', openI);
+          currentVRM.expressionManager?.setValue('aa', Math.max(0, Math.sin(talkTimer)) * 0.65);
+          currentVRM.expressionManager?.setValue('oh', Math.max(0, Math.cos(talkTimer * 0.75)) * 0.45);
+          currentVRM.expressionManager?.setValue('ih', Math.max(0, Math.sin(talkTimer * 1.3)) * 0.35);
         }
       }
 
       renderer.render(scene, camera);
     }
 
-    animate();
+    requestAnimationFrame(animate);
 
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;

@@ -220,10 +220,11 @@ class DesktopRoboPet(QWidget):
         self.ai_timer.setInterval(4000)
         self.ai_timer.timeout.connect(self._ai_decide_next_action)
 
-        # Silky smooth 60 FPS Physics & Render Loop (16ms)
+        # Smooth 30 FPS Physics Loop (33ms saves ~50% CPU over 16ms)
         self.loop_timer = QTimer(self)
-        self.loop_timer.setInterval(16)
+        self.loop_timer.setInterval(33)
         self.loop_timer.timeout.connect(self._physics_step)
+        self._last_lookat_ts = 0.0
 
         # Spawn at bottom center on primary screen
         self.init_position()
@@ -235,7 +236,7 @@ class DesktopRoboPet(QWidget):
         screen = QApplication.primaryScreen()
         if screen:
             avail = screen.availableGeometry()
-            self.floor_y = avail.bottom() - self.height() + 8
+            self.floor_y = avail.bottom() - self.height() - 2
             start_x = avail.left() + (avail.width() - self.width()) // 2 + 100
             self.move(start_x, self.floor_y)
         else:
@@ -305,7 +306,7 @@ class DesktopRoboPet(QWidget):
         super().setVisible(visible)
         if visible:
             if not self.loop_timer.isActive():
-                self.loop_timer.start(16)
+                self.loop_timer.start(33)
             if not self.ai_timer.isActive():
                 self.ai_timer.start(4000)
         else:
@@ -421,12 +422,16 @@ class DesktopRoboPet(QWidget):
             if self.anim_tick > 80:
                 self.state = self.STATE_IDLE
 
-        need_paint = (
-            self.state in [self.STATE_WALK, self.STATE_DANCE, self.STATE_PICKED_UP, self.STATE_FALLING, self.STATE_CELEBRATE, self.STATE_HURT]
-            or self.is_blinking
-            or len(self.particles) > 0
-            or getattr(self, "squash_factor", 1.0) != 1.0
-        )
+        if getattr(self, 'character', 'shino') == 'shino' and getattr(self, 'vrm_view', None):
+            # WebEngine renders 3D asynchronously; only repaint Qt overlay when 2D particles exist
+            need_paint = len(self.particles) > 0
+        else:
+            need_paint = (
+                self.state in [self.STATE_WALK, self.STATE_DANCE, self.STATE_PICKED_UP, self.STATE_FALLING, self.STATE_CELEBRATE, self.STATE_HURT]
+                or self.is_blinking
+                or len(self.particles) > 0
+                or getattr(self, "squash_factor", 1.0) != 1.0
+            )
         if need_paint:
             self.update()
 
@@ -749,9 +754,13 @@ class DesktopRoboPet(QWidget):
                         self.move(event.globalPosition().toPoint() - self.drag_offset)
                         return True
                 elif hasattr(self, 'vrm_view') and self.vrm_view:
-                    norm_x = (event.position().x() / max(1, self.width())) * 2.0 - 1.0
-                    norm_y = (event.position().y() / max(1, self.height())) * 2.0 - 1.0
-                    self.vrm_view.page().runJavaScript(f"window.setLookAt && window.setLookAt({norm_x:.2f}, {norm_y:.2f})")
+                    import time
+                    now = time.monotonic()
+                    if now - getattr(self, '_last_lookat_ts', 0.0) >= 0.09:
+                        self._last_lookat_ts = now
+                        norm_x = (event.position().x() / max(1, self.width())) * 2.0 - 1.0
+                        norm_y = (event.position().y() / max(1, self.height())) * 2.0 - 1.0
+                        self.vrm_view.page().runJavaScript(f"window.setLookAt && window.setLookAt({norm_x:.2f}, {norm_y:.2f})")
             elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
                 if self.dragging:
                     self.dragging = False
