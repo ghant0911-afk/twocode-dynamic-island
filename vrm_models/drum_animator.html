@@ -543,6 +543,15 @@
       <button class="btn-secondary" id="btnDownloadJson">
         <span>💾 Скачать JSON анимации</span>
       </button>
+      <div style="display: flex; gap: 6px;">
+        <button class="btn-secondary" id="btnUploadJson" style="flex: 1;">
+          <span>📂 Открыть JSON</span>
+        </button>
+        <button class="btn-secondary" id="btnLoadDefaultJson" style="flex: 1;">
+          <span>⚡ Загрузить astra.json</span>
+        </button>
+      </div>
+      <input type="file" id="jsonFileInput" accept=".json" style="display: none;" />
       <button class="btn-secondary" id="btnResetToDrumPose">
         <span>🔄 Сбросить в базовую барабанную стойку</span>
       </button>
@@ -1495,6 +1504,80 @@
       showToast('💾 Файл astra_drum_animation.json скачан!');
     };
 
+    function loadProjectFromData(data) {
+      if (!data) return;
+      if (data.drumKit && window.drumKit) {
+        drumParams = data.drumKit;
+        window.drumKit.position.set(drumParams.pos.x, drumParams.pos.y, drumParams.pos.z);
+        window.drumKit.rotation.y = drumParams.rotY || 0;
+        window.drumKit.scale.setScalar(drumParams.scale || 0.68);
+        updateDrumSummary();
+      }
+      if (data.stickL && stickParams.stickL && window.stickL) {
+        stickParams.stickL = data.stickL;
+        window.stickL.position.set(stickParams.stickL.pos[0], stickParams.stickL.pos[1], stickParams.stickL.pos[2]);
+        window.stickL.rotation.set(stickParams.stickL.rot[0], stickParams.stickL.rot[1], stickParams.stickL.rot[2]);
+      }
+      if (data.stickR && stickParams.stickR && window.stickR) {
+        stickParams.stickR = data.stickR;
+        window.stickR.position.set(stickParams.stickR.pos[0], stickParams.stickR.pos[1], stickParams.stickR.pos[2]);
+        window.stickR.rotation.set(stickParams.stickR.rot[0], stickParams.stickR.rot[1], stickParams.stickR.rot[2]);
+      }
+      if (data.duration) {
+        ANIM_DURATION = data.duration;
+        window.ANIM_DURATION = data.duration;
+        timelineSlider.max = data.duration;
+      }
+      if (data.tracks) {
+        animatedBoneNames.forEach(b => {
+          if (data.tracks[b]) {
+            recordedTracks[b] = JSON.parse(JSON.stringify(data.tracks[b]));
+          }
+        });
+      }
+      renderTimelineMarkers();
+      currentTime = 0;
+      timelineSlider.value = 0;
+      applyArmPosesAtTime(0);
+      renderSlidersForTarget();
+      showToast('✅ Проект успешно загружен!');
+    }
+    window.loadProjectFromData = loadProjectFromData;
+
+    const jsonFileInput = document.getElementById('jsonFileInput');
+    document.getElementById('btnUploadJson').onclick = () => {
+      jsonFileInput.click();
+    };
+    jsonFileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const data = JSON.parse(evt.target.result);
+          loadProjectFromData(data);
+        } catch(err) {
+          alert('Ошибка чтения JSON: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
+    };
+
+    document.getElementById('btnLoadDefaultJson').onclick = () => {
+      fetch('astra_drum_animation.json')
+        .then(res => {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          loadProjectFromData(data);
+          showToast('⚡ astra_drum_animation.json загружен!');
+        })
+        .catch(err => {
+          showToast('⚠️ Ошибка загрузки: ' + err.message);
+        });
+    };
+
     function showToast(msg) {
       const t = document.getElementById('toast');
       t.textContent = msg;
@@ -1549,6 +1632,17 @@
 
       // Attach 3D Gizmo to Left Forearm immediately so user can manipulate it!
       selectTargetNode('leftLowerArm');
+
+      // Auto-load latest saved drum animation project if present
+      fetch('astra_drum_animation.json')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data) {
+            loadProjectFromData(data);
+            console.log('Auto-loaded astra_drum_animation.json successfully');
+          }
+        })
+        .catch(() => {});
 
       // Start render & animation loop
       const clock = new THREE.Clock();
