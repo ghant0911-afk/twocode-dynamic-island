@@ -490,7 +490,7 @@
     async function init() {
       try {
         const urlParams = new URLSearchParams(window.location.search);
-        const initialModel = urlParams.get('model') || 'Sendagaya_Shino.vrm';
+        const initialModel = urlParams.get('model') || 'Sendagaya_Shino_opt.vrm';
         const gltf = await loader.loadAsync(initialModel);
         const vrm = gltf.userData.vrm;
         VRMUtils.removeUnnecessaryVertices(gltf.scene);

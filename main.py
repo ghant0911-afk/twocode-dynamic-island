@@ -13,6 +13,8 @@ import os
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
+# Force hardware GPU rasterization in Chromium for Intel N95 / Celeron
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --disable-gpu-driver-bug-workarounds --use-angle=d3d11 --disable-software-rasterizer"
 
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -3578,7 +3580,7 @@ class TwoCodeIsland(QWidget):
         if not getattr(self, "desktop_pet", None):
             try:
                 from desktop_pet import DesktopRoboPet
-                selected_model = getattr(self, "selected_vrm_model", "Sendagaya_Shino.vrm")
+                selected_model = getattr(self, "selected_vrm_model", "Sendagaya_Shino_opt.vrm")
                 self.desktop_pet = DesktopRoboPet(model=selected_model)
                 self.desktop_pet.dismiss_requested.connect(self.dismiss_desktop_pet)
                 self.desktop_pet.jump_to_island_requested.connect(self.dismiss_desktop_pet)
@@ -3686,7 +3688,7 @@ class TwoCodeIsland(QWidget):
 
     def load_config(self):
         self.always_on_top = True
-        self.selected_vrm_model = "Sendagaya_Shino.vrm"
+        self.selected_vrm_model = "Sendagaya_Shino_opt.vrm"
         if os.path.exists(CONFIG_PATH):
             try:
                 with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -3694,7 +3696,7 @@ class TwoCodeIsland(QWidget):
                     self.sound_enabled = cfg.get("sound_enabled", True)
                     self.always_on_top = cfg.get("always_on_top", True)
                     self.desktop_pet_enabled = cfg.get("desktop_pet_enabled", True)
-                    self.selected_vrm_model = cfg.get("selected_vrm_model", "Sendagaya_Shino.vrm")
+                    self.selected_vrm_model = cfg.get("selected_vrm_model", "Sendagaya_Shino_opt.vrm")
                     self.custom_x = cfg.get("pos_x", None)
                     self.custom_y = cfg.get("pos_y", None)
                     self.accent_color = cfg.get("accent_color", "#F59E0B")

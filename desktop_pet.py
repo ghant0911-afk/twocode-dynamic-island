@@ -1,3 +1,13 @@
+import os
+import sys
+
+# Force DirectX 11 hardware-accelerated GPU rasterization on low-end Intel iGPUs (e.g. N95 / Celeron)
+# Prevents Chromium from falling back to CPU software rasterization (SwiftShader) which causes severe lag!
+existing_flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+gpu_flags = "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --disable-gpu-driver-bug-workarounds --use-angle=d3d11 --disable-software-rasterizer"
+if "enable-gpu-rasterization" not in existing_flags:
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = f"{existing_flags} {gpu_flags}".strip()
+
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
     from PyQt6.QtWebEngineCore import QWebEngineSettings
@@ -112,12 +122,13 @@ def draw_vector_double_note(p: QPainter, x: float, y: float, size: float, color:
 # Desktop Robo Pet Widget
 # -------------------------------------------------------------------------
 VRM_MODELS = [
-    ("Sendagaya_Shino.vrm", "Sendagaya Shino (Астра 3D)", "shino"),
-    ("Victoria_Rubin.vrm", "Victoria Rubin (Виктория 3D)", "victoria"),
+    ("Sendagaya_Shino_opt.vrm", "Sendagaya Shino (⚡ 3D Eco)", "shino_opt"),
+    ("Sendagaya_Shino.vrm", "Sendagaya Shino (3D Full)", "shino"),
+    ("Victoria_Rubin.vrm", "Victoria Rubin (3D)", "victoria"),
     ("AvatarSample_A.vrm", "Avatar Sample A (3D)", "sample_a"),
     ("AvatarSample_B.vrm", "Avatar Sample B (3D)", "sample_b"),
     ("AvatarSample_C.vrm", "Avatar Sample C (3D)", "sample_c"),
-    ("robo", "TwoCode Robo (Робот 2D)", "robo")
+    ("robo", "TwoCode Robo (🚀 2D Ultra-Lite)", "robo")
 ]
 
 class DesktopRoboPet(QWidget):
@@ -134,7 +145,7 @@ class DesktopRoboPet(QWidget):
     STATE_CELEBRATE = "celebrate"
     STATE_HURT = "hurt"
 
-    def __init__(self, parent=None, size=260, model="Sendagaya_Shino.vrm"):
+    def __init__(self, parent=None, size=260, model="Sendagaya_Shino_opt.vrm"):
         super().__init__(parent)
         self.setWindowTitle("TwoCode Desktop Robo")
 
