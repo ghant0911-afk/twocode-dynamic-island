@@ -371,7 +371,7 @@
 
     const speedMap = {
       idle: 0.85,
-      walk: 0.50,
+      walk: 0.85,
       picked_up: 0.85,
       falling: 0.90,
       hurt: 0.80,
@@ -508,12 +508,22 @@
         mixer = new THREE.AnimationMixer(vrm.scene);
         window.mixer = mixer;
         window.actions = actions;
+        window.ensureActionLoaded = ensureActionLoaded;
 
         // Only load lightweight idle animation upfront!
         await ensureActionLoaded('idle', vrm);
         playAction('idle', 0.20);
         window.isPetReady = true;
         console.log('[AstraVRM] Lightweight pet ready!');
+
+        // Pre-warm core interactive animations sequentially in background (zero stutter on first fall/walk!)
+        setTimeout(async () => {
+          const warmKeys = ['walk', 'hurt', 'sit', 'picked_up', 'wave', 'celebrate'];
+          for (const k of warmKeys) {
+            try { await ensureActionLoaded(k, vrm); } catch (e) {}
+          }
+          console.log('[AstraVRM] Pre-warmed core animations:', Object.keys(actions));
+        }, 80);
       } catch (err) {
         console.error('[AstraVRM] Initialization error:', err);
       }
@@ -700,24 +710,20 @@
       window.setLookAt(normX, normY);
     });
 
-    // 6. Lightweight Throttled Render Loop (30 FPS active / 18 FPS idle -> low CPU!)
-    let lastFrameTime = performance.now();
+    // 6. Smooth VSYNC-locked Render Loop (Zero Cadence Judder / Zero Stutter)
+    const clock = new THREE.Clock();
     let elapsedTotal = 0;
     let blinkTimer = 2.0;
     let isBlinking = false;
     let blinkProgress = 0;
     const _curLookTarget = new THREE.Vector3().copy(camStandLook);
 
-    function animate(now) {
+    function animate() {
       requestAnimationFrame(animate);
 
-      const isActive = isDrummingActive || currentState === 'walk' || currentState === 'picked_up' || currentState === 'falling' || currentState === 'wave' || currentState === 'celebrate' || isTalking;
-      const minInterval = isActive ? 32 : 52; // ~30 FPS active, ~19 FPS idle
-      const elapsedMs = now - lastFrameTime;
-      if (elapsedMs < minInterval) return;
-
-      lastFrameTime = now - (elapsedMs % minInterval);
-      const delta = Math.min(elapsedMs / 1000, 0.08);
+      // Real-time delta clamped to [0.001, 0.05] for buttery-smooth frame progression
+      const delta = Math.min(clock.getDelta(), 0.05);
+      if (delta <= 0) return;
       elapsedTotal += delta;
 
       // Smoothly interpolate camera framing between standing and seated drumming
@@ -739,13 +745,13 @@
 
         currentVRM.update(delta);
 
-        // Hips height guard ONLY when NOT seated drumming
-        if (!isDrummingActive) {
+        // Hips safety guard: only guard against runaway NaN or extreme model drop (never snap during hurt or run!)
+        if (!isDrummingActive && currentState !== 'hurt') {
           const hips = currentVRM.humanoid?.getNormalizedBoneNode('hips');
           if (hips) {
-            if (hips.position.y < 0.25) hips.position.y = 0.893;
-            if (Math.abs(hips.position.x) > 0.45) hips.position.x = Math.sign(hips.position.x) * 0.45;
-            if (Math.abs(hips.position.z) > 0.45) hips.position.z = Math.sign(hips.position.z) * 0.45;
+            if (isNaN(hips.position.y) || hips.position.y < 0.10) hips.position.y = 0.893;
+            if (Math.abs(hips.position.x) > 0.65) hips.position.x = Math.sign(hips.position.x) * 0.65;
+            if (Math.abs(hips.position.z) > 0.65) hips.position.z = Math.sign(hips.position.z) * 0.65;
           }
         }
 

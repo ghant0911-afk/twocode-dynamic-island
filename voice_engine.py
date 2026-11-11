@@ -83,15 +83,42 @@ class VoiceEngine:
             import torch
             torch.set_num_threads(1)
             self.device = torch.device('cpu')
-            self.silero_model, _ = torch.hub.load(
-                repo_or_dir='snakers4/silero-models',
-                model='silero_tts',
-                language='ru',
-                speaker='v4_ru',
-                trust_repo=True
-            )
-            self.silero_model.to(self.device)
-            print("[VoiceEngine] Silero Neural TTS (Baya 48kHz) initialized successfully!")
+
+            # 1. Fast local package loading (100% offline, ~1.5s, 0 network calls)
+            local_model_path = os.path.join(self.cache_dir, "silero_models", "v4_ru.pt")
+            if os.path.exists(local_model_path):
+                importer = torch.package.PackageImporter(local_model_path)
+                self.silero_model = importer.load_pickle('tts_models', 'model')
+                self.silero_model.to(self.device)
+                print("[VoiceEngine] Silero Neural TTS (Baya 48kHz) loaded from project cache!")
+                return
+
+            # 2. Check global torch hub cache
+            hub_model_path = os.path.expanduser("~/.cache/torch/hub/snakers4_silero-models_master/src/silero/model/v4_ru.pt")
+            if os.path.exists(hub_model_path):
+                importer = torch.package.PackageImporter(hub_model_path)
+                self.silero_model = importer.load_pickle('tts_models', 'model')
+                self.silero_model.to(self.device)
+                print("[VoiceEngine] Silero Neural TTS loaded from torch hub cache!")
+                return
+
+            # 3. Check local directory via torch.hub (without network)
+            hub_dir = os.path.expanduser("~/.cache/torch/hub/snakers4_silero-models_master")
+            if os.path.exists(hub_dir):
+                self.silero_model, _ = torch.hub.load(
+                    repo_or_dir=hub_dir,
+                    model='silero_tts',
+                    language='ru',
+                    speaker='v4_ru',
+                    source='local',
+                    trust_repo=True
+                )
+                self.silero_model.to(self.device)
+                print("[VoiceEngine] Silero Neural TTS loaded from local hub dir!")
+                return
+
+            print("[VoiceEngine] Silero weights not found locally, using SAPI fallback.")
+            self.silero_model = None
         except Exception as e:
             print(f"[VoiceEngine] Silero init error: {e}")
             self.silero_model = None

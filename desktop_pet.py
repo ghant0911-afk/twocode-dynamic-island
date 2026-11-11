@@ -20,6 +20,7 @@ import os
 import sys
 import math
 import random
+import threading
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QMenu
@@ -204,7 +205,8 @@ class DesktopRoboPet(QWidget):
         # Animation Ticks & Kinematics
         self.anim_tick = 0
         self.walk_phase = 0.0
-        self.walk_speed = 0.75  # Gentle calm natural walking pace (not frantic run)
+        self.walk_speed = 1.6  # Synchronized with natural VRM run/walk stride
+        self.subpixel_x = 0.0
         self.blink_tick = 0
         self.is_blinking = False
         self.dangle_phase = 0.0
@@ -250,9 +252,11 @@ class DesktopRoboPet(QWidget):
             self.floor_y = avail.bottom() - self.height() - 2
             start_x = avail.left() + (avail.width() - self.width()) // 2 + 100
             self.move(start_x, self.floor_y)
+            self.subpixel_x = float(start_x)
         else:
             self.floor_y = 700
             self.move(300, self.floor_y)
+            self.subpixel_x = 300.0
 
     def set_music(self, is_playing: bool):
         if self.forced_music:
@@ -394,8 +398,8 @@ class DesktopRoboPet(QWidget):
 
         elif self.state == self.STATE_WALK:
             self.walk_phase += 0.22
-            step = int(self.walk_speed * self.facing_direction)
-            new_x = self.x() + step
+            self.subpixel_x += self.walk_speed * self.facing_direction
+            new_x = int(round(self.subpixel_x))
 
             # Boundary check against screen edges
             screen = QApplication.primaryScreen()
@@ -405,9 +409,11 @@ class DesktopRoboPet(QWidget):
                 right_bound = avail.right() - self.width() - 10
                 if new_x <= left_bound:
                     new_x = left_bound
+                    self.subpixel_x = float(left_bound)
                     self.facing_direction = 1
                 elif new_x >= right_bound:
                     new_x = right_bound
+                    self.subpixel_x = float(right_bound)
                     self.facing_direction = -1
 
             if new_x != self.x():
@@ -453,13 +459,15 @@ class DesktopRoboPet(QWidget):
         self.squash_factor = 1.45  # Comic cartoon squash on impact
         self.spawn_dizzy_stars(5)
 
-        # Comic impact thud
-        try:
-            import winsound
-            winsound.Beep(180, 70)
-            winsound.Beep(130, 80)
-        except Exception:
-            pass
+        # Comic impact thud in daemon thread (zero GUI main thread freeze!)
+        def _thud():
+            try:
+                import winsound
+                winsound.Beep(180, 70)
+                winsound.Beep(130, 80)
+            except Exception:
+                pass
+        threading.Thread(target=_thud, daemon=True).start()
 
         # Expressive voice reaction via Baya
         hurt_lines = [
@@ -555,11 +563,13 @@ class DesktopRoboPet(QWidget):
         if self.dragging and (event.buttons() & Qt.MouseButton.LeftButton):
             new_pos = event.globalPosition().toPoint() - self.drag_offset
             self.move(new_pos)
+            self.subpixel_x = float(self.x())
             event.accept()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.dragging:
             self.dragging = False
+            self.subpixel_x = float(self.x())
             # Check if dropped in mid-air
             if self.y() < self.floor_y - 20:
                 self.state = self.STATE_FALLING
