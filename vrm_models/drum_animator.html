@@ -648,6 +648,7 @@
     import * as THREE from 'three';
     window.THREE = THREE;
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
     import { TransformControls } from 'three/addons/controls/TransformControls.js';
     import { VRMLoaderPlugin } from '@pixiv/three-vrm';
 
@@ -824,9 +825,34 @@
 
     const gltfLoader = new GLTFLoader();
     gltfLoader.load('drum_kit.glb', (gltf) => {
-      drumKit = gltf.scene;
-      window.drumKit = drumKit;
+      const rawScene = gltf.scene;
+      rawScene.updateMatrixWorld(true);
+      const invRoot = rawScene.matrixWorld.clone().invert();
+      const matMap = new Map();
+
+      rawScene.traverse(obj => {
+        if (obj.isMesh && obj.visible && (!obj.name || !obj.name.toLowerCase().includes('plane'))) {
+          const mat = obj.material;
+          if (!matMap.has(mat)) matMap.set(mat, []);
+          const g = obj.geometry.clone();
+          const relMat = new THREE.Matrix4().multiplyMatrices(invRoot, obj.matrixWorld);
+          g.applyMatrix4(relMat);
+          matMap.get(mat).push(g);
+        }
+      });
+
+      drumKit = new THREE.Group();
       drumKit.name = 'drumKit';
+      for (const [mat, geoms] of matMap.entries()) {
+        if (geoms.length === 1) {
+          drumKit.add(new THREE.Mesh(geoms[0], mat));
+        } else {
+          const mergedGeo = mergeGeometries(geoms, false);
+          if (mergedGeo) drumKit.add(new THREE.Mesh(mergedGeo, mat));
+        }
+      }
+
+      window.drumKit = drumKit;
       drumStageGroup.add(drumKit);
       applyDrumParams();
       updateDrumSummary();
