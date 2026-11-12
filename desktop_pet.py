@@ -1056,7 +1056,7 @@ class DesktopRoboPet(QWidget):
             and hasattr(self, 'vrm_view') and self.vrm_view is not None
             and self.state == self.STATE_DANCE
         )
-        target_w = int(self.pet_size * 1.50) if want_wide else self.pet_size
+        target_w = int(self.pet_size * 1.65) if want_wide else self.pet_size
         target_h = int(self.pet_size * 1.45)
         if self.width() == target_w and self.height() == target_h:
             return

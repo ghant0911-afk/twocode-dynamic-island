@@ -64,17 +64,22 @@
     const camera = new THREE.PerspectiveCamera(33.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
     const camStandPos = new THREE.Vector3(0.0, 0.74, 3.45);
     const camStandLook = new THREE.Vector3(0.0, 0.74, 0.0);
-    const camDrumPos = new THREE.Vector3(-0.075, 0.78, 4.35);
-    const camDrumLook = new THREE.Vector3(-0.075, 0.65, 0.12);
+    const camDrumPos = new THREE.Vector3(-0.10, 0.72, 4.35);
+    const camDrumLook = new THREE.Vector3(-0.10, 0.62, 0.20);
 
     function updateDrumCameraFraming() {
-      // Drum kit spans x in [-0.96, +0.77] (centered at x=-0.075, half-span ~0.92m at z~0.4)
-      // Guarantee full cymbals, stands & kick drum clearance inside 86% of viewport width at any aspect!
-      const halfSpanNeeded = 0.92;
+      // Drum kit spans x in [-0.96, +0.77], world center x=-0.095, y in [0.07, 1.30]
+      // Full clearance guaranteed inside <= 80% NDC (generous 20%+ breathing margin) at ANY aspect ratio!
+      const halfSpanX = 0.98; // drum kit half-span + kick bounce margin
+      const halfSpanY = 0.72; // vertical half-span (stool to Shino head)
       const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
-      const minZ = 0.40 + halfSpanNeeded / (0.86 * tanHalfFov * Math.max(0.45, camera.aspect));
-      camDrumPos.set(-0.075, 0.78, Math.max(4.35, minZ));
-      camDrumLook.set(-0.075, 0.65, 0.12);
+      const safetyMargin = 0.80; // keep all vertices within 80% of screen half-width/height
+      const neededDistX = halfSpanX / (safetyMargin * tanHalfFov * Math.max(0.40, camera.aspect));
+      const neededDistY = halfSpanY / (safetyMargin * tanHalfFov);
+      const neededZ = 0.35 + Math.max(neededDistX, neededDistY);
+
+      camDrumPos.set(-0.10, 0.72, Math.max(3.85, neededZ));
+      camDrumLook.set(-0.10, 0.62, 0.20);
     }
     updateDrumCameraFraming();
 
@@ -649,6 +654,9 @@
       if (stickR) stickR.visible = wantDrumming;
 
       if (wantDrumming) {
+        camera.aspect = (window.innerWidth && window.innerHeight) ? (window.innerWidth / window.innerHeight) : camera.aspect;
+        camera.updateProjectionMatrix();
+        updateDrumCameraFraming();
         ensureDrumAssetsLoaded();
         if (currentAction) {
           currentAction.stop();
@@ -887,14 +895,20 @@
 
       const targetCamPos = isDrummingActive ? camDrumPos : camStandPos;
       const targetCamLook = isDrummingActive ? camDrumLook : camStandLook;
-      const camMoving = camera.position.distanceToSquared(targetCamPos) > 0.0004;
+      const camMoving = camera.position.distanceToSquared(targetCamPos) > 0.0001;
       const rotMoving = currentVRM && Math.abs(targetRotationY - currentVRM.scene.rotation.y) > 0.005;
 
       // Smoothly interpolate camera framing between standing and seated drumming
       if (camMoving) {
-        camera.position.lerp(targetCamPos, 0.14);
-        _curLookTarget.lerp(targetCamLook, 0.14);
+        camera.position.lerp(targetCamPos, 0.16);
+        _curLookTarget.lerp(targetCamLook, 0.16);
         camera.lookAt(_curLookTarget);
+      } else if (isDrummingActive) {
+        if (camera.position.distanceToSquared(camDrumPos) > 0.00001 || _curLookTarget.distanceToSquared(camDrumLook) > 0.00001) {
+          camera.position.copy(camDrumPos);
+          _curLookTarget.copy(camDrumLook);
+          camera.lookAt(_curLookTarget);
+        }
       }
 
       if (currentVRM) {
@@ -1114,6 +1128,11 @@
       camera.updateProjectionMatrix();
       updateDrumCameraFraming();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      if (isDrummingActive) {
+        camera.position.copy(camDrumPos);
+        _curLookTarget.copy(camDrumLook);
+        camera.lookAt(_curLookTarget);
+      }
     });
   </script>
 </body>
