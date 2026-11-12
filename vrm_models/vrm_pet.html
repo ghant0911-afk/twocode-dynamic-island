@@ -728,12 +728,20 @@
       }
     };
 
-    window.setBeatPulse = (peak, speedScale) => {
+    window.setBeatPulse = (peak, speedScale, beatHit) => {
       const p = Math.max(0.0, Math.min(1.0, Number(peak) || 0.0));
       const s = Math.max(0.72, Math.min(1.45, Number(speedScale) || 1.0));
       targetDrumSpeedScale = s;
-      if (p > 0.12) {
-        drumKickBounce = Math.max(drumKickBounce, Math.min(0.045, p * 0.045));
+      if (p > 0.10) {
+        drumKickBounce = Math.max(drumKickBounce, Math.min(0.055, p * 0.055));
+      }
+      // True PLL Phase Locking: when a real audio beat hits, smoothly nudge
+      // the drumming timeline phase toward the nearest strike point (quarter beat = 0.40s)
+      if (beatHit) {
+        const beatInterval = drumDuration / 4.0;
+        const nearestBeat = Math.round(drumTime / beatInterval) * beatInterval;
+        const phaseError = nearestBeat - drumTime;
+        drumTime += phaseError * 0.45;
       }
     };
 

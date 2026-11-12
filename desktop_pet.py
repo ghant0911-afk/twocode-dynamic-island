@@ -560,7 +560,7 @@ class DesktopRoboPet(QWidget):
                 peak, beat_hit, _, speed_scale = self._beat_detector.poll()
                 if peak > 0.05 or beat_hit:
                     self.vrm_view.page().runJavaScript(
-                        f"window.setBeatPulse && window.setBeatPulse({peak:.3f}, {speed_scale:.3f})"
+                        f"window.setBeatPulse && window.setBeatPulse({peak:.3f}, {speed_scale:.3f}, {str(beat_hit).lower()})"
                     )
 
         elif self.state == self.STATE_CELEBRATE:
