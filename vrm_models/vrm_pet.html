@@ -677,6 +677,44 @@
       else targetRotationY = Math.PI;
     };
 
+    let targetSpeechLevel = 0.0;
+    let smoothedSpeechLevel = 0.0;
+    let hasLiveSpeechEnvelope = false;
+    let drumSpeedScale = 1.0;
+    let targetDrumSpeedScale = 1.0;
+    let drumKickBounce = 0.0;
+
+    window.setSpeechLevel = (lvl) => {
+      targetSpeechLevel = Math.max(0.0, Math.min(1.0, Number(lvl) || 0.0));
+      hasLiveSpeechEnvelope = true;
+    };
+
+    window.setEmotion = (emotion) => {
+      const em = currentVRM?.expressionManager;
+      if (!em) return;
+      ['happy', 'relaxed', 'surprised', 'sad', 'angry'].forEach(e => em.setValue(e, 0));
+      if (emotion === 'happy' || emotion === 'star' || emotion === 'celebrate') {
+        em.setValue('happy', 0.9);
+      } else if (emotion === 'surprised' || emotion === 'shock') {
+        em.setValue('surprised', 0.85);
+      } else if (emotion === 'sad' || emotion === 'dizzy') {
+        em.setValue('sad', 0.75);
+      } else if (emotion === 'angry') {
+        em.setValue('angry', 0.75);
+      } else if (emotion === 'thinking' || emotion === 'relaxed') {
+        em.setValue('relaxed', 0.8);
+      }
+    };
+
+    window.setBeatPulse = (peak, speedScale) => {
+      const p = Math.max(0.0, Math.min(1.0, Number(peak) || 0.0));
+      const s = Math.max(0.72, Math.min(1.45, Number(speedScale) || 1.0));
+      targetDrumSpeedScale = s;
+      if (p > 0.12) {
+        drumKickBounce = Math.max(drumKickBounce, Math.min(0.045, p * 0.045));
+      }
+    };
+
     window.setTalking = (talking) => {
       isTalking = Boolean(talking);
       if (isTalking) {
@@ -684,6 +722,9 @@
           playAction('talk', 0.25);
         }
       } else {
+        targetSpeechLevel = 0.0;
+        smoothedSpeechLevel = 0.0;
+        hasLiveSpeechEnvelope = false;
         if (currentVRM?.expressionManager) {
           currentVRM.expressionManager.setValue('aa', 0);
           currentVRM.expressionManager.setValue('oh', 0);
@@ -783,9 +824,18 @@
 
       if (currentVRM) {
         if (isDrummingActive) {
-          drumTime = (drumTime + delta) % drumDuration;
+          drumSpeedScale += (targetDrumSpeedScale - drumSpeedScale) * 0.18;
+          drumTime = (drumTime + delta * drumSpeedScale) % drumDuration;
           applyDrummingFrame(currentVRM, drumTime);
+          if (drumKickBounce > 0.0005) {
+            drumKickBounce *= 0.82;
+            const sc = 1.0 + drumKickBounce;
+            drumStageGroup.scale.set(sc, sc, sc);
+          } else if (drumStageGroup.scale.x !== 1.0) {
+            drumStageGroup.scale.set(1.0, 1.0, 1.0);
+          }
         } else {
+          if (drumStageGroup.scale.x !== 1.0) drumStageGroup.scale.set(1.0, 1.0, 1.0);
           if (currentState === 'idle' && !isTalking) {
             idleVarTimer -= delta;
             if (idleVarTimer <= 0) {
@@ -837,9 +887,17 @@
 
         if (isTalking) {
           talkTimer += delta * 12.0;
-          currentVRM.expressionManager?.setValue('aa', Math.max(0, Math.sin(talkTimer)) * 0.65);
-          currentVRM.expressionManager?.setValue('oh', Math.max(0, Math.cos(talkTimer * 0.75)) * 0.45);
-          currentVRM.expressionManager?.setValue('ih', Math.max(0, Math.sin(talkTimer * 1.3)) * 0.35);
+          if (hasLiveSpeechEnvelope) {
+            smoothedSpeechLevel += (targetSpeechLevel - smoothedSpeechLevel) * 0.50;
+            const lvl = smoothedSpeechLevel;
+            currentVRM.expressionManager?.setValue('aa', Math.min(0.90, lvl * 0.85));
+            currentVRM.expressionManager?.setValue('oh', Math.max(0, lvl - 0.25) * 0.55);
+            currentVRM.expressionManager?.setValue('ih', lvl * (0.20 + 0.15 * Math.abs(Math.sin(talkTimer))));
+          } else {
+            currentVRM.expressionManager?.setValue('aa', Math.max(0, Math.sin(talkTimer)) * 0.65);
+            currentVRM.expressionManager?.setValue('oh', Math.max(0, Math.cos(talkTimer * 0.75)) * 0.45);
+            currentVRM.expressionManager?.setValue('ih', Math.max(0, Math.sin(talkTimer * 1.3)) * 0.35);
+          }
         }
       }
 

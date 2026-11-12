@@ -23,7 +23,13 @@ import random
 import threading
 
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QMenu
+    QApplication, QWidget, QMenu, QLabel
+)
+from pet_sensors import (
+    Win32PetWindowHelper,
+    FullscreenAppDetector,
+    SystemAudioBeatDetector,
+    is_cursor_in_silhouette,
 )
 from PyQt6.QtCore import (
     Qt, QPoint, QPointF, QRectF, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve
@@ -135,6 +141,7 @@ VRM_MODELS = [
 class DesktopRoboPet(QWidget):
     dismiss_requested = pyqtSignal()
     jump_to_island_requested = pyqtSignal()
+    ai_reply_ready = pyqtSignal(str, str)
 
     # States
     STATE_IDLE = "idle"
@@ -209,9 +216,40 @@ class DesktopRoboPet(QWidget):
         self.is_blinking = False
         self.dangle_phase = 0.0
 
-        # Desktop anchor & Eco mode
+        # Desktop anchor, Eco, Click-through & Smart Sensors
         self.floor_y = 600
         self.eco_mode = True
+        self.click_through_enabled = True
+        self.fullscreen_pause_enabled = True
+        self.beat_sync_enabled = True
+        self._fullscreen_paused = False
+        self._menu_open = False
+        self._own_hwnds = set()
+        self._win32_helper = Win32PetWindowHelper()
+        self._beat_detector = SystemAudioBeatDetector()
+        self._last_beat_ts = 0.0
+        self._last_speech_lvl_ts = 0.0
+
+        # Floating Speech Bubble Overlay (renders cleanly on top of QWebEngineView)
+        self.speech_bubble_lbl = QLabel(self)
+        self.speech_bubble_lbl.setWordWrap(True)
+        self.speech_bubble_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.speech_bubble_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.speech_bubble_lbl.setStyleSheet(
+            "QLabel {"
+            "  background-color: rgba(18, 20, 29, 232);"
+            "  color: #F4F6FB;"
+            "  border: 1px solid rgba(92, 224, 122, 165);"
+            "  border-radius: 10px;"
+            "  padding: 5px 9px;"
+            "  font-family: 'Segoe UI', sans-serif;"
+            "  font-size: 11px;"
+            "}"
+        )
+        self.speech_bubble_lbl.hide()
+        self._bubble_hide_timer = QTimer(self)
+        self._bubble_hide_timer.setSingleShot(True)
+        self._bubble_hide_timer.timeout.connect(self.speech_bubble_lbl.hide)
 
         # Floating Particles (Notes & Hearts)
         self.particles = []
@@ -233,11 +271,34 @@ class DesktopRoboPet(QWidget):
         self.loop_timer.timeout.connect(self._physics_step)
         self._last_lookat_ts = 0.0
 
+        # Mouse pass-through hit-tester (100ms, skipped in headless offscreen mode)
+        self._hit_timer = QTimer(self)
+        self._hit_timer.setInterval(100)
+        self._hit_timer.timeout.connect(self._update_click_through_state)
+
+        # Fullscreen game/video detector (2000ms)
+        self._fullscreen_timer = QTimer(self)
+        self._fullscreen_timer.setInterval(2000)
+        self._fullscreen_timer.timeout.connect(self._check_fullscreen_pause)
+
+        # Connect thread-safe AI + VoiceBridge signals for real-time lip-sync & speech bubble
+        self.ai_reply_ready.connect(self.react_to_ai)
+        try:
+            from voice_engine import voice_bridge
+            voice_bridge.speaking_state_changed.connect(self.set_speaking)
+            voice_bridge.speech_level_changed.connect(self._on_speech_level)
+            voice_bridge.speech_text_started.connect(self._on_voice_text_started)
+        except Exception:
+            pass
+
         # Spawn at bottom center on primary screen
         self.init_position()
 
         self.loop_timer.start()
         self.ai_timer.start()
+        if QApplication.platformName() != "offscreen":
+            self._hit_timer.start()
+            self._fullscreen_timer.start()
 
     def init_position(self):
         screen = QApplication.primaryScreen()
@@ -298,31 +359,88 @@ class DesktopRoboPet(QWidget):
             self.state = self.STATE_IDLE
             self.ai_timer.setInterval(random.randint(4500, 8500))
 
+    def register_own_hwnd(self, hwnd: int):
+        if hwnd:
+            self._own_hwnds.add(int(hwnd))
+
     def showEvent(self, event):
         super().showEvent(event)
         try:
-            import ctypes
             hwnd = int(self.winId())
             if hwnd:
-                GWL_EXSTYLE = -20
-                WS_EX_NOACTIVATE = 0x08000000
-                cur = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, cur | WS_EX_NOACTIVATE)
+                self._own_hwnds.add(hwnd)
+                self._win32_helper.apply_noactivate(hwnd)
         except Exception:
             pass
 
     def setVisible(self, visible: bool):
         super().setVisible(visible)
         if hasattr(self, 'vrm_view') and self.vrm_view and self.character == "shino":
-            self.vrm_view.page().runJavaScript(f"window.setRenderPaused && window.setRenderPaused({str(not visible).lower()})")
+            paused = (not visible) or self._fullscreen_paused
+            self.vrm_view.page().runJavaScript(f"window.setRenderPaused && window.setRenderPaused({str(paused).lower()})")
         if visible:
+            if not self._fullscreen_paused:
+                if not self.loop_timer.isActive():
+                    self.loop_timer.start(33)
+                if not self.ai_timer.isActive():
+                    self.ai_timer.start(4000)
+            if QApplication.platformName() != "offscreen":
+                if not self._hit_timer.isActive():
+                    self._hit_timer.start()
+                if not self._fullscreen_timer.isActive():
+                    self._fullscreen_timer.start()
+        else:
+            self.loop_timer.stop()
+            self.ai_timer.stop()
+            self._hit_timer.stop()
+            self._fullscreen_timer.stop()
+
+    def _update_click_through_state(self):
+        if not self.isVisible():
+            return
+        try:
+            hwnd = int(self.winId())
+        except Exception:
+            return
+        if not self.click_through_enabled or self.dragging or self._menu_open or self._fullscreen_paused:
+            self._win32_helper.set_click_through(hwnd, False)
+            return
+        gpos = QCursor.pos()
+        local = self.mapFromGlobal(gpos)
+        inside = is_cursor_in_silhouette(
+            local.x(), local.y(), self.width(), self.height(), self.state, self.character
+        )
+        self._win32_helper.set_click_through(hwnd, not inside)
+
+    def _check_fullscreen_pause(self):
+        if not self.isVisible():
+            return
+        if not self.fullscreen_pause_enabled:
+            if self._fullscreen_paused:
+                self._apply_fullscreen_pause(False)
+            return
+        own = set(self._own_hwnds)
+        try:
+            own.add(int(self.winId()))
+        except Exception:
+            pass
+        covered = FullscreenAppDetector.is_fullscreen_covered(own)
+        if covered != self._fullscreen_paused:
+            self._apply_fullscreen_pause(covered)
+
+    def _apply_fullscreen_pause(self, paused: bool):
+        self._fullscreen_paused = paused
+        self.setWindowOpacity(0.0 if paused else 1.0)
+        if hasattr(self, 'vrm_view') and self.vrm_view and self.character == "shino":
+            self.vrm_view.page().runJavaScript(f"window.setRenderPaused && window.setRenderPaused({str(paused).lower()})")
+        if paused:
+            self.loop_timer.stop()
+            self.ai_timer.stop()
+        else:
             if not self.loop_timer.isActive():
                 self.loop_timer.start(33)
             if not self.ai_timer.isActive():
                 self.ai_timer.start(4000)
-        else:
-            self.loop_timer.stop()
-            self.ai_timer.stop()
 
     def _physics_step(self):
         if not self.isVisible():
@@ -396,6 +514,18 @@ class DesktopRoboPet(QWidget):
                 self.dance_style = (self.dance_style + 1) % 4
             if self.anim_tick % 18 == 0:
                 self.spawn_note()
+            if (
+                self.has_headphones
+                and self.beat_sync_enabled
+                and self.character == "shino"
+                and hasattr(self, 'vrm_view') and self.vrm_view
+                and (self.anim_tick % 3 == 0)
+            ):
+                peak, beat_hit, _, speed_scale = self._beat_detector.poll()
+                if peak > 0.05 or beat_hit:
+                    self.vrm_view.page().runJavaScript(
+                        f"window.setBeatPulse && window.setBeatPulse({peak:.3f}, {speed_scale:.3f})"
+                    )
 
         elif self.state == self.STATE_CELEBRATE:
             # Jumping celebration
@@ -593,6 +723,24 @@ class DesktopRoboPet(QWidget):
         act_eco.triggered.connect(self.toggle_eco_mode)
         menu.addAction(act_eco)
 
+        # Click-through toggle
+        ct_lbl = "🖱 Клик-сквозь по фону: Вкл" if getattr(self, "click_through_enabled", True) else "🖱 Клик-сквозь по фону: Выкл"
+        act_ct = QAction(ct_lbl, self)
+        act_ct.triggered.connect(self.toggle_click_through)
+        menu.addAction(act_ct)
+
+        # Fullscreen auto-pause toggle
+        fs_lbl = "🎮 Пауза в играх/видео: Вкл" if getattr(self, "fullscreen_pause_enabled", True) else "🎮 Пауза в играх/видео: Выкл"
+        act_fs = QAction(fs_lbl, self)
+        act_fs.triggered.connect(self.toggle_fullscreen_pause)
+        menu.addAction(act_fs)
+
+        # Beat-sync toggle
+        bs_lbl = "🎵 Бит-синхронизация барабанов: Вкл" if getattr(self, "beat_sync_enabled", True) else "🎵 Бит-синхронизация барабанов: Выкл"
+        act_bs = QAction(bs_lbl, self)
+        act_bs.triggered.connect(self.toggle_beat_sync)
+        menu.addAction(act_bs)
+
         menu.addSeparator()
 
         # Jump back to Island
@@ -605,7 +753,11 @@ class DesktopRoboPet(QWidget):
         act_hide.triggered.connect(self.dismiss_requested.emit)
         menu.addAction(act_hide)
 
-        menu.exec(event.globalPos())
+        self._menu_open = True
+        try:
+            menu.exec(event.globalPos())
+        finally:
+            self._menu_open = False
 
     def set_vrm_model(self, model_file):
         self.current_vrm_model = model_file
@@ -638,17 +790,65 @@ class DesktopRoboPet(QWidget):
         import webbrowser
         webbrowser.open("http://127.0.0.1:8098/vrm_viewer.html")
 
+    def _layout_speech_bubble(self):
+        if not hasattr(self, 'speech_bubble_lbl'):
+            return
+        bw = max(160, self.width() - 24)
+        self.speech_bubble_lbl.setFixedWidth(bw)
+        self.speech_bubble_lbl.adjustSize()
+        bh = min(76, max(28, self.speech_bubble_lbl.heightForWidth(bw) + 10))
+        bx = (self.width() - bw) // 2
+        self.speech_bubble_lbl.setGeometry(bx, 6, bw, bh)
+        self.speech_bubble_lbl.raise_()
+
+    def show_speech_bubble(self, text: str, duration_ms: int = 5000):
+        if not text or not hasattr(self, 'speech_bubble_lbl'):
+            return
+        display = text.strip()
+        if len(display) > 130:
+            display = display[:127].rstrip() + "..."
+        self.speech_bubble_lbl.setText(display)
+        self._layout_speech_bubble()
+        self.speech_bubble_lbl.show()
+        self.speech_bubble_lbl.raise_()
+        self._bubble_hide_timer.start(max(2000, duration_ms))
+
+    def _on_voice_text_started(self, text: str):
+        if self.isVisible() and not self._fullscreen_paused:
+            self.show_speech_bubble(text, duration_ms=max(3200, len(text) * 85))
+
+    def _on_speech_level(self, level: float):
+        if not self.isVisible() or self._fullscreen_paused:
+            return
+        if self.character == "shino" and hasattr(self, 'vrm_view') and self.vrm_view:
+            import time
+            now = time.monotonic()
+            if level == 0.0 or (now - self._last_speech_lvl_ts) >= 0.05:
+                self._last_speech_lvl_ts = now
+                self.vrm_view.page().runJavaScript(f"window.setSpeechLevel && window.setSpeechLevel({level:.3f})")
+
+    def react_to_ai(self, text: str, emotion: str = "happy"):
+        """Sync Astra expression, bubble, and subtle gesture with AI / Game Commentary."""
+        if text:
+            self.show_speech_bubble(text, duration_ms=5200)
+        if self.character == "shino" and hasattr(self, 'vrm_view') and self.vrm_view:
+            safe_emo = str(emotion or "happy").replace("'", "")
+            self.vrm_view.page().runJavaScript(f"window.setEmotion && window.setEmotion('{safe_emo}')")
+            if safe_emo in ("happy", "star", "celebrate") and self.state == self.STATE_IDLE:
+                self.vrm_view.page().runJavaScript("window.setPetState && window.setPetState('wave')")
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'vrm_view') and self.vrm_view:
             self.vrm_view.resize(self.size())
+        self._layout_speech_bubble()
 
     def react_to_click(self):
         """Cute interactive reaction when the user clicks Astra"""
         self.spawn_hearts(3)
         if hasattr(self, 'vrm_view') and self.vrm_view:
             self.vrm_view.page().runJavaScript("window.setPetState && window.setPetState('wave')")
-        
+
         greetings = [
             "Привет! Я тут, рядом с тобой ✨",
             "Слушаю тебя! Чем помочь?",
@@ -657,9 +857,10 @@ class DesktopRoboPet(QWidget):
             "Рада тебя видеть! Как настроение?"
         ]
         try:
-            import random
+            choice = random.choice(greetings)
+            self.show_speech_bubble(choice, duration_ms=3500)
             from voice_engine import VoiceEngine
-            VoiceEngine.get().speak(random.choice(greetings))
+            VoiceEngine.get().speak(choice)
         except Exception:
             pass
 
@@ -669,15 +870,20 @@ class DesktopRoboPet(QWidget):
             from PyQt6.QtWidgets import QInputDialog
             text, ok = QInputDialog.getText(self, "Чат с Астрой", "О чём хочешь поговорить с Астрой?")
             if ok and text.strip():
+                self.show_speech_bubble("Думаю...", duration_ms=8000)
+                query = text.strip()
                 def _worker():
                     try:
                         from deepseek_brain import DeepSeekBrain
                         from voice_engine import VoiceEngine
-                        resp, _ = DeepSeekBrain.get().ask(text.strip())
-                        VoiceEngine.get().speak(resp)
+                        resp = DeepSeekBrain.get().ask(query)
+                        if isinstance(resp, tuple):
+                            resp = resp[0]
+                        if resp:
+                            self.ai_reply_ready.emit(str(resp), "happy")
+                            VoiceEngine.get().speak(str(resp))
                     except Exception as e:
                         print(f"[AstraTalk] error: {e}")
-                import threading
                 threading.Thread(target=_worker, daemon=True).start()
         except Exception as e:
             print(f"[AstraTalk] Dialog error: {e}")
@@ -781,6 +987,24 @@ class DesktopRoboPet(QWidget):
         self.eco_mode = not getattr(self, "eco_mode", True)
         if hasattr(self, 'vrm_view') and self.vrm_view:
             self.vrm_view.page().runJavaScript(f"window.setEcoMode && window.setEcoMode({str(self.eco_mode).lower()})")
+
+    def toggle_click_through(self):
+        self.click_through_enabled = not getattr(self, "click_through_enabled", True)
+        if not self.click_through_enabled:
+            try:
+                self._win32_helper.set_click_through(int(self.winId()), False)
+            except Exception:
+                pass
+
+    def toggle_fullscreen_pause(self):
+        self.fullscreen_pause_enabled = not getattr(self, "fullscreen_pause_enabled", True)
+        if not self.fullscreen_pause_enabled and self._fullscreen_paused:
+            self._apply_fullscreen_pause(False)
+
+    def toggle_beat_sync(self):
+        self.beat_sync_enabled = not getattr(self, "beat_sync_enabled", True)
+        if not self.beat_sync_enabled and hasattr(self, 'vrm_view') and self.vrm_view:
+            self.vrm_view.page().runJavaScript("window.setBeatPulse && window.setBeatPulse(0.0, 1.0)")
 
     # -------------------------------------------------------------------------
     # Paint Event: Authentic Vector TwoCode Full-Body Mascot

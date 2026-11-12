@@ -43,6 +43,8 @@ except ImportError:
 
 class VoiceBridge(QObject):
     speaking_state_changed = pyqtSignal(bool)
+    speech_level_changed = pyqtSignal(float)
+    speech_text_started = pyqtSignal(str)
     mic_state_changed = pyqtSignal(bool)
     wake_word_detected = pyqtSignal(str)
     voice_phrase_recognized = pyqtSignal(str)
@@ -138,11 +140,52 @@ class VoiceEngine:
         h = hashlib.md5(clean.lower().encode('utf-8')).hexdigest()[:12]
         cache_file = os.path.join(self.cache_dir, f"baya_{h}.wav")
 
+        def _compute_wav_envelope(filepath, step_ms=55):
+            """Pre-compute normalized [0..1] syllable RMS envelope for real-time lip-sync."""
+            try:
+                import wave
+                import numpy as np
+                with wave.open(filepath, "rb") as wf:
+                    sr = wf.getframerate() or 48000
+                    nch = wf.getnchannels() or 1
+                    sw = wf.getsampwidth() or 2
+                    raw = wf.readframes(wf.getnframes())
+                if sw == 2:
+                    samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                else:
+                    return []
+                if nch > 1:
+                    samples = samples[::nch]
+                chunk = max(1, int(sr * (step_ms / 1000.0)))
+                n_chunks = len(samples) // chunk
+                if n_chunks <= 0:
+                    return []
+                trimmed = samples[: n_chunks * chunk].reshape(n_chunks, chunk)
+                rms = np.sqrt(np.mean(trimmed * trimmed, axis=1))
+                peak = float(np.percentile(rms, 95)) if len(rms) > 4 else float(np.max(rms))
+                peak = max(peak, 0.04)
+                return [min(1.0, float(v / peak)) for v in rms]
+            except Exception:
+                return []
+
         def _play_file(filepath):
+            stop_env = threading.Event()
+            envelope = _compute_wav_envelope(filepath, step_ms=55)
+
+            def _emit_envelope():
+                for lvl in envelope:
+                    if stop_env.is_set():
+                        break
+                    voice_bridge.speech_level_changed.emit(round(lvl, 3))
+                    stop_env.wait(0.055)
+
             try:
                 import winsound
                 self.is_speaking = True
                 voice_bridge.speaking_state_changed.emit(True)
+                voice_bridge.speech_text_started.emit(clean)
+                if envelope:
+                    threading.Thread(target=_emit_envelope, daemon=True).start()
                 winsound.PlaySound(filepath, winsound.SND_FILENAME)
             except Exception:
                 try:
@@ -151,12 +194,17 @@ class VoiceEngine:
                     data, fs = sf.read(filepath)
                     self.is_speaking = True
                     voice_bridge.speaking_state_changed.emit(True)
+                    voice_bridge.speech_text_started.emit(clean)
+                    if envelope:
+                        threading.Thread(target=_emit_envelope, daemon=True).start()
                     sd.play(data, fs)
                     sd.wait()
                 except Exception:
                     pass
             finally:
+                stop_env.set()
                 self.is_speaking = False
+                voice_bridge.speech_level_changed.emit(0.0)
                 voice_bridge.speaking_state_changed.emit(False)
 
         def _worker():

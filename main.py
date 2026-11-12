@@ -2062,6 +2062,9 @@ class AmbientRoboTabWidget(QWidget):
         self.status_lbl.setText("Робот TwoCode: Ответил")
         self.robo.set_mode("happy", duration_ms=4500)
         self.speech_bubble.setText(f"«{answer}»")
+        top = self.window()
+        if top and getattr(top, "desktop_pet", None) and top.desktop_pet.isVisible():
+            top.desktop_pet.react_to_ai(answer, "happy")
         if HAS_VOICE_ENGINE:
             VoiceEngine.get().speak(answer)
 
@@ -2091,6 +2094,9 @@ class AmbientRoboTabWidget(QWidget):
     def on_game_commentary(self, text, emotion):
         self.speech_bubble.setText(f"«{text}»")
         self.robo.set_mode(emotion, duration_ms=4500)
+        top = self.window()
+        if top and getattr(top, "desktop_pet", None) and top.desktop_pet.isVisible():
+            top.desktop_pet.react_to_ai(text, emotion)
         if HAS_VOICE_ENGINE:
             VoiceEngine.get().speak(text)
 
@@ -3582,6 +3588,10 @@ class TwoCodeIsland(QWidget):
                 from desktop_pet import DesktopRoboPet
                 selected_model = getattr(self, "selected_vrm_model", "Sendagaya_Shino_opt.vrm")
                 self.desktop_pet = DesktopRoboPet(model=selected_model)
+                try:
+                    self.desktop_pet.register_own_hwnd(int(self.winId()))
+                except Exception:
+                    pass
                 self.desktop_pet.dismiss_requested.connect(self.dismiss_desktop_pet)
                 self.desktop_pet.jump_to_island_requested.connect(self.dismiss_desktop_pet)
             except Exception as e:
