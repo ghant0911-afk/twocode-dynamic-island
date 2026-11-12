@@ -125,10 +125,10 @@ def draw_vector_double_note(p: QPainter, x: float, y: float, size: float, color:
 VRM_MODELS = [
     ("Sendagaya_Shino_opt.vrm", "Sendagaya Shino (⚡ 3D Eco)", "shino_opt"),
     ("Sendagaya_Shino.vrm", "Sendagaya Shino (3D Full)", "shino"),
-    ("Victoria_Rubin.vrm", "Victoria Rubin (3D)", "victoria"),
-    ("AvatarSample_A.vrm", "Avatar Sample A (3D)", "sample_a"),
-    ("AvatarSample_B.vrm", "Avatar Sample B (3D)", "sample_b"),
-    ("AvatarSample_C.vrm", "Avatar Sample C (3D)", "sample_c"),
+    ("Victoria_Rubin_opt.vrm", "Victoria Rubin (⚡ 3D Eco)", "victoria"),
+    ("AvatarSample_A_opt.vrm", "Avatar Sample A (⚡ 3D Eco)", "sample_a"),
+    ("AvatarSample_B_opt.vrm", "Avatar Sample B (⚡ 3D Eco)", "sample_b"),
+    ("AvatarSample_C_opt.vrm", "Avatar Sample C (⚡ 3D Eco)", "sample_c"),
     ("robo", "TwoCode Robo (🚀 2D Ultra-Lite)", "robo")
 ]
 
@@ -142,9 +142,7 @@ class DesktopRoboPet(QWidget):
     STATE_DANCE = "dance"
     STATE_SIT = "sit"
     STATE_PICKED_UP = "picked_up"
-    STATE_FALLING = "falling"
     STATE_CELEBRATE = "celebrate"
-    STATE_HURT = "hurt"
 
     def __init__(self, parent=None, size=260, model="Sendagaya_Shino_opt.vrm"):
         super().__init__(parent)
@@ -163,7 +161,7 @@ class DesktopRoboPet(QWidget):
         self.setMouseTracking(True)
 
         self.pet_size = size
-        self.current_vrm_model = model or "Sendagaya_Shino.vrm"
+        self.current_vrm_model = model or "Sendagaya_Shino_opt.vrm"
         self.character = "robo" if self.current_vrm_model == "robo" else "shino"
         self.setFixedSize(self.pet_size, int(self.pet_size * 1.45))
 
@@ -211,10 +209,9 @@ class DesktopRoboPet(QWidget):
         self.is_blinking = False
         self.dangle_phase = 0.0
 
-        # Physics
-        self.vy = 0.0
-        self.gravity = 1.2
+        # Desktop anchor & Eco mode
         self.floor_y = 600
+        self.eco_mode = True
 
         # Floating Particles (Notes & Hearts)
         self.particles = []
@@ -226,9 +223,6 @@ class DesktopRoboPet(QWidget):
         # Behavior AI Timer (State switching)
         self.dance_style = 0
         self.dance_switch_timer = 0
-        self.fall_start_y = 0
-        self.hurt_timer = 0
-        self.squash_factor = 1.0
         self.ai_timer = QTimer(self)
         self.ai_timer.setInterval(4000)
         self.ai_timer.timeout.connect(self._ai_decide_next_action)
@@ -283,7 +277,7 @@ class DesktopRoboPet(QWidget):
         self._sync_vrm_state()
 
     def _ai_decide_next_action(self):
-        if self.state in [self.STATE_PICKED_UP, self.STATE_FALLING, self.STATE_CELEBRATE, self.STATE_HURT]:
+        if self.state in [self.STATE_PICKED_UP, self.STATE_CELEBRATE]:
             return
 
         # If music is playing, stay drumming on rock drum kit continuously without interruption
@@ -319,6 +313,8 @@ class DesktopRoboPet(QWidget):
 
     def setVisible(self, visible: bool):
         super().setVisible(visible)
+        if hasattr(self, 'vrm_view') and self.vrm_view and self.character == "shino":
+            self.vrm_view.page().runJavaScript(f"window.setRenderPaused && window.setRenderPaused({str(not visible).lower()})")
         if visible:
             if not self.loop_timer.isActive():
                 self.loop_timer.start(33)
@@ -354,46 +350,15 @@ class DesktopRoboPet(QWidget):
             if self.blink_tick <= 0:
                 self.is_blinking = False
 
-        # Particle management
-        self._update_particles()
-
-        # Elastic squash restoration after landing impact
-        if hasattr(self, "squash_factor") and self.squash_factor != 1.0:
-            self.squash_factor += (1.0 - self.squash_factor) * 0.14
-            if abs(self.squash_factor - 1.0) < 0.02:
-                self.squash_factor = 1.0
+        # Particle management (only iterate when particles exist)
+        if self.particles:
+            self._update_particles()
 
         # Handle States
         if self.state == self.STATE_PICKED_UP:
             self.dangle_phase += 0.25
-            self.update()
-            return
-
-        elif self.state == self.STATE_HURT:
-            self.hurt_timer -= 1
-            if self.anim_tick % 18 == 0:
-                self.spawn_dizzy_stars(2)
-            if self.hurt_timer <= 0:
-                self.state = self.STATE_IDLE
-                self.squash_factor = 1.0
-                self.spawn_hearts(2)
-
-        elif self.state == self.STATE_FALLING:
-            self.vy += self.gravity
-            new_y = int(self.y() + self.vy)
-            if new_y >= self.floor_y:
-                new_y = self.floor_y
-                fall_dist = self.floor_y - getattr(self, "fall_start_y", self.floor_y)
-                impact_speed = self.vy
-                self.vy = 0
-                if impact_speed > 5.5 or fall_dist > 50:
-                    self.trigger_fall_damage(fall_dist, impact_speed)
-                else:
-                    self.state = self.STATE_IDLE
-                    self.spawn_hearts(2)
-            if new_y != self.y():
-                self.move(self.x(), new_y)
-            self.update()
+            if self.character != "shino" or self.particles:
+                self.update()
             return
 
         elif self.state == self.STATE_WALK:
@@ -444,64 +409,30 @@ class DesktopRoboPet(QWidget):
             need_paint = len(self.particles) > 0
         else:
             need_paint = (
-                self.state in [self.STATE_WALK, self.STATE_DANCE, self.STATE_PICKED_UP, self.STATE_FALLING, self.STATE_CELEBRATE, self.STATE_HURT]
+                self.state in [self.STATE_WALK, self.STATE_DANCE, self.STATE_PICKED_UP, self.STATE_CELEBRATE]
                 or self.is_blinking
                 or len(self.particles) > 0
-                or getattr(self, "squash_factor", 1.0) != 1.0
             )
         if need_paint:
             self.update()
 
-    def trigger_fall_damage(self, fall_dist, impact_speed):
-        self.state = self.STATE_HURT
-        self.has_headphones = False
-        self.hurt_timer = 180  # ~3 seconds at 60 FPS
-        self.squash_factor = 1.45  # Comic cartoon squash on impact
-        self.spawn_dizzy_stars(5)
+    def snap_to_floor(self):
+        """Return mascot smoothly to taskbar floor position."""
+        self.move(self.x(), self.floor_y)
+        self.subpixel_x = float(self.x())
+        self.state = self.STATE_IDLE
+        self._sync_vrm_state()
 
-        # Comic impact thud in daemon thread (zero GUI main thread freeze!)
-        def _thud():
-            try:
-                import winsound
-                winsound.Beep(180, 70)
-                winsound.Beep(130, 80)
-            except Exception:
-                pass
-        threading.Thread(target=_thud, daemon=True).start()
-
-        # Expressive voice reaction via Baya
-        hurt_lines = [
-            "Ой-ёй! За что уронили?!",
-            "Ай! Осторожнее, я же хрупкая!",
-            "Уф... земля оказалась слишком твёрдой!",
-            "Осторожнее! Я же твоя Астра, а не мячик!",
-            "Ох... звёздочки перед глазами кружатся..."
-        ]
-        try:
-            from voice_engine import VoiceEngine
-            VoiceEngine.get().speak(random.choice(hurt_lines))
-        except Exception:
-            pass
-
-    def spawn_dizzy_stars(self, count=4):
-        cx = self.width() / 2.0
-        cy = self.height() / 2.0 - 28
-        for i in range(count):
-            angle = random.uniform(0, math.pi * 2)
-            rad = random.uniform(16.0, 25.0)
-            self.particles.append({
-                "type": "dizzy_star",
-                "center_x": cx,
-                "center_y": cy,
-                "orbit_angle": angle,
-                "orbit_radius": rad,
-                "speed": random.uniform(0.14, 0.22),
-                "alpha": 255,
-                "size": random.uniform(5.5, 8.0),
-                "color": QColor('#FFD700'),
-                "x": cx + math.cos(angle) * rad,
-                "y": cy + math.sin(angle) * (rad * 0.38)
-            })
+    def _clamp_to_screen(self):
+        """Keep mascot inside visible desktop bounds after placement."""
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            cx = max(avail.left() + 4, min(avail.right() - self.width() - 4, self.x()))
+            cy = max(avail.top() + 4, min(self.floor_y, self.y()))
+            if cx != self.x() or cy != self.y():
+                self.move(cx, cy)
+        self.subpixel_x = float(self.x())
 
     def spawn_note(self):
         cx = self.width() / 2.0 + (22 if self.facing_direction == 1 else -22)
@@ -536,15 +467,9 @@ class DesktopRoboPet(QWidget):
 
     def _update_particles(self):
         for p in self.particles:
-            if p.get("type") == "dizzy_star":
-                p["orbit_angle"] += p["speed"]
-                p["x"] = p["center_x"] + math.cos(p["orbit_angle"]) * p["orbit_radius"]
-                p["y"] = p["center_y"] + math.sin(p["orbit_angle"]) * (p["orbit_radius"] * 0.38)
-                p["alpha"] = max(0, p["alpha"] - 4)
-            else:
-                p["x"] += p["vx"]
-                p["y"] += p["vy"]
-                p["alpha"] = max(0, p["alpha"] - 6)
+            p["x"] += p["vx"]
+            p["y"] += p["vy"]
+            p["alpha"] = max(0, p["alpha"] - 6)
         self.particles = [p for p in self.particles if p["alpha"] > 0]
 
     # -------------------------------------------------------------------------
@@ -554,8 +479,6 @@ class DesktopRoboPet(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self.dragging = True
             self.state = self.STATE_PICKED_UP
-            self.hurt_timer = 0
-            self.squash_factor = 1.0
             self._sync_vrm_state()
             self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
@@ -570,15 +493,9 @@ class DesktopRoboPet(QWidget):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.dragging:
             self.dragging = False
-            self.subpixel_x = float(self.x())
-            # Check if dropped in mid-air
-            if self.y() < self.floor_y - 20:
-                self.state = self.STATE_FALLING
-                self.fall_start_y = self.y()
-                self.vy = 0
-            else:
-                self.move(self.x(), self.floor_y)
-                self.state = self.STATE_IDLE
+            self._clamp_to_screen()
+            self.state = self.STATE_IDLE
+            self._sync_vrm_state()
             event.accept()
 
     def mouseDoubleClickEvent(self, event):
@@ -655,15 +572,26 @@ class DesktopRoboPet(QWidget):
         act_drums.triggered.connect(lambda: self._set_manual_state(self.STATE_DANCE if self.state != self.STATE_DANCE else self.STATE_IDLE))
         menu.addAction(act_drums)
 
-        # Dance Action
-        act_dance = QAction("💃 Сменить танец", self)
-        act_dance.triggered.connect(lambda: self.vrm_view.page().runJavaScript("window.cycleDance && window.cycleDance()"))
+        # Dance Action (includes Breakdance & Samba)
+        act_dance = QAction("💃 Сменить танец (Самба / Брейкданс)", self)
+        act_dance.triggered.connect(self._trigger_next_dance)
         menu.addAction(act_dance)
 
         # Sit Action
         act_sit = QAction("🪑 Сесть отдохнуть", self)
         act_sit.triggered.connect(lambda: self._set_manual_state(self.STATE_SIT))
         menu.addAction(act_sit)
+
+        # Snap back to taskbar floor
+        act_floor = QAction("📍 Вернуть на панель задач", self)
+        act_floor.triggered.connect(self.snap_to_floor)
+        menu.addAction(act_floor)
+
+        # Eco FPS mode toggle (30 FPS locked idle -> -50% GPU/CPU)
+        eco_lbl = "⚡ Эко-режим FPS: Вкл (30/60)" if getattr(self, "eco_mode", True) else "⚡ Эко-режим FPS: Выкл (60 FPS)"
+        act_eco = QAction(eco_lbl, self)
+        act_eco.triggered.connect(self.toggle_eco_mode)
+        menu.addAction(act_eco)
 
         menu.addSeparator()
 
@@ -770,8 +698,6 @@ class DesktopRoboPet(QWidget):
                     if not self.dragging and (event.globalPosition().toPoint() - self.drag_start_pos).manhattanLength() > 6:
                         self.dragging = True
                         self.state = self.STATE_PICKED_UP
-                        self.hurt_timer = 0
-                        self.squash_factor = 1.0
                         self._sync_vrm_state()
                         self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                     if self.dragging:
@@ -789,14 +715,8 @@ class DesktopRoboPet(QWidget):
             elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
                 if self.dragging:
                     self.dragging = False
-                    if self.y() < self.floor_y - 20:
-                        self.state = self.STATE_FALLING
-                        self.fall_start_y = self.y()
-                        self.vy = 0
-                    else:
-                        self.move(self.x(), self.floor_y)
-                        self.state = self.STATE_IDLE
-                    self.subpixel_x = float(self.x())
+                    self._clamp_to_screen()
+                    self.state = self.STATE_IDLE
                     self._sync_vrm_state()
                     return True
                 else:
@@ -848,6 +768,20 @@ class DesktopRoboPet(QWidget):
             self.has_headphones = True
         self._sync_vrm_state()
 
+    def _trigger_next_dance(self):
+        if self.character == "shino" and hasattr(self, 'vrm_view') and self.vrm_view:
+            self.state = self.STATE_IDLE
+            self._update_stage_size()
+            self.vrm_view.page().runJavaScript("window.cycleDance && window.cycleDance()")
+        else:
+            self.dance_style = (self.dance_style + 1) % 4
+            self.state = self.STATE_DANCE
+
+    def toggle_eco_mode(self):
+        self.eco_mode = not getattr(self, "eco_mode", True)
+        if hasattr(self, 'vrm_view') and self.vrm_view:
+            self.vrm_view.page().runJavaScript(f"window.setEcoMode && window.setEcoMode({str(self.eco_mode).lower()})")
+
     # -------------------------------------------------------------------------
     # Paint Event: Authentic Vector TwoCode Full-Body Mascot
     # -------------------------------------------------------------------------
@@ -871,10 +805,6 @@ class DesktopRoboPet(QWidget):
                         draw_vector_double_note(p, pt["x"], pt["y"], pt["size"] * 1.15, col)
                     else:
                         draw_vector_note(p, pt["x"], pt["y"], pt["size"] * 1.15, col)
-                elif pt["type"] == "dizzy_star":
-                    col = QColor(pt["color"])
-                    col.setAlpha(pt["alpha"])
-                    draw_vector_star(p, pt["x"], pt["y"], pt["size"], col)
                 elif pt["type"] == "heart":
                     col = QColor(pt["color"])
                     col.setAlpha(pt["alpha"])
@@ -893,8 +823,7 @@ class DesktopRoboPet(QWidget):
         p.translate(w / 2.0, h / 2.0 - 10 * s)
 
         # Facing direction flip (horizontal scale)
-        squash = getattr(self, "squash_factor", 1.0)
-        p.scale(self.facing_direction * squash, (1.0 / squash) if squash != 0 else 1.0)
+        p.scale(self.facing_direction, 1.0)
 
         # Kinematics based on state
         leg_l_angle = 0.0
@@ -961,17 +890,6 @@ class DesktopRoboPet(QWidget):
                 head_bob = 1.5 * s
                 string_sway = math.sin(dance_t * 1.2) * 12.0
 
-        elif self.state == self.STATE_HURT:
-            # Comic dizzy sprawling with wobbly head shake
-            walk_bob = 9.0 * s
-            leg_l_angle = 65.0
-            leg_r_angle = 65.0
-            arm_l_angle = 45.0 + math.sin(self.anim_tick * 0.25) * 10.0
-            arm_r_angle = 45.0 - math.sin(self.anim_tick * 0.25) * 10.0
-            head_tilt = math.sin(self.anim_tick * 0.30) * 14.0
-            head_bob = math.cos(self.anim_tick * 0.30) * 2.0 * s
-            string_sway = math.sin(self.anim_tick * 0.30) * 5.0
-
         elif self.state == self.STATE_PICKED_UP:
             walk_bob = 0.0
             # Dangling legs and waving arms
@@ -980,13 +898,6 @@ class DesktopRoboPet(QWidget):
             arm_l_angle = -35.0 + math.sin(self.dangle_phase * 1.5) * 15.0
             arm_r_angle = -35.0 - math.cos(self.dangle_phase * 1.5) * 15.0
             string_sway = math.sin(self.dangle_phase) * 10.0
-
-        elif self.state == self.STATE_FALLING:
-            walk_bob = 0.0
-            arm_l_angle = -50.0
-            arm_r_angle = -50.0
-            leg_l_angle = 15.0
-            leg_r_angle = -15.0
 
         elif self.state == self.STATE_SIT:
             walk_bob = 8.0 * s
@@ -1009,7 +920,7 @@ class DesktopRoboPet(QWidget):
         # -------------------------------------------------------------
         # 1. Soft Shadow Underneath
         # -------------------------------------------------------------
-        if self.state not in [self.STATE_PICKED_UP, self.STATE_FALLING]:
+        if self.state != self.STATE_PICKED_UP:
             p.save()
             p.setBrush(QColor(0, 0, 0, 45))
             p.setPen(Qt.PenStyle.NoPen)
@@ -1173,29 +1084,7 @@ class DesktopRoboPet(QWidget):
             p.drawEllipse(QRectF(9 * s, 2 * s, 7 * s, 4 * s))
 
             # Eyes based on state
-            if self.state == self.STATE_HURT:
-                # Comic dizzy spiral eyes @ @
-                p.setPen(QPen(QColor('#D97706'), max(1, int(2.2 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-                rot = self.anim_tick * 0.16
-                for offset_x in [-9.5 * s, 9.5 * s]:
-                    for stp in range(3):
-                        angle_start = int((rot + stp * 1.8) * 180 / math.pi) % 360
-                        rad = (2.0 + stp * 2.0) * s
-                        p.drawArc(QRectF(offset_x - rad, -2.0 * s - rad, rad * 2, rad * 2), angle_start * 16, 120 * 16)
-                p.setBrush(QColor(96, 165, 250, 140))
-                p.setPen(Qt.PenStyle.NoPen)
-                p.drawEllipse(QRectF(-15.5 * s, 1.5 * s, 5.0 * s, 3.5 * s))
-                p.drawEllipse(QRectF(10.5 * s, 1.5 * s, 5.0 * s, 3.5 * s))
-                sw_path = QPainterPath()
-                sw_path.moveTo(17 * s, -14 * s)
-                sw_path.cubicTo(19 * s, -11 * s, 21 * s, -9 * s, 21 * s, -7 * s)
-                sw_path.cubicTo(21 * s, -5 * s, 19 * s, -4 * s, 17 * s, -4 * s)
-                sw_path.cubicTo(15 * s, -4 * s, 13 * s, -5 * s, 13 * s, -7 * s)
-                sw_path.cubicTo(13 * s, -9 * s, 15 * s, -11 * s, 17 * s, -14 * s)
-                p.setBrush(QBrush(QColor('#38BDF8')))
-                p.drawPath(sw_path)
-
-            elif self.state in [self.STATE_PICKED_UP, self.STATE_FALLING]:
+            if self.state == self.STATE_PICKED_UP:
                 # Surprised wide anime eyes (O . O)
                 for ex in [-10 * s, 10 * s]:
                     p.setBrush(QBrush(QColor('#FFFFFF')))
@@ -1255,13 +1144,7 @@ class DesktopRoboPet(QWidget):
             p.drawPoint(QPointF(0, 4 * s))
 
             # Animated Mouth with Lip-Sync
-            if self.state == self.STATE_HURT:
-                p.setPen(QPen(QColor('#881337'), max(1, int(1.6 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-                m_path = QPainterPath()
-                m_path.moveTo(-4 * s, 9 * s)
-                m_path.cubicTo(-2 * s, 11 * s, 2 * s, 7 * s, 4 * s, 9 * s)
-                p.drawPath(m_path)
-            elif self.state in [self.STATE_PICKED_UP, self.STATE_FALLING]:
+            if self.state == self.STATE_PICKED_UP:
                 p.setBrush(QBrush(QColor('#E11D48')))
                 p.setPen(QPen(QColor('#881337'), max(1, int(1.2 * s))))
                 p.drawEllipse(QRectF(-2.5 * s, 7.5 * s, 5 * s, 5 * s))
@@ -1390,7 +1273,7 @@ class DesktopRoboPet(QWidget):
             p.setPen(Qt.PenStyle.NoPen)
             p.drawRoundedRect(QRectF(-12 * s, -9.5 * s, 24 * s, 4 * s), 2 * s, 2 * s)
 
-            if self.state in [self.STATE_PICKED_UP, self.STATE_FALLING]:
+            if self.state == self.STATE_PICKED_UP:
                 p.setBrush(QColor('#5CE07A'))
                 p.setPen(Qt.PenStyle.NoPen)
                 p.drawEllipse(QRectF(-14 * s, -6 * s, 9 * s, 10 * s))
@@ -1398,18 +1281,6 @@ class DesktopRoboPet(QWidget):
                 p.setBrush(QColor('#FFFFFF'))
                 p.drawEllipse(QRectF(-11.5 * s, -4 * s, 3.5 * s, 3.5 * s))
                 p.drawEllipse(QRectF(7.5 * s, -4 * s, 3.5 * s, 3.5 * s))
-            elif self.state == self.STATE_HURT:
-                p.setPen(QPen(QColor('#FFD700'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-                rot = self.anim_tick * 0.16
-                for offset_x in [-9.5 * s, 9.5 * s]:
-                    for stp in range(3):
-                        angle_start = int((rot + stp * 1.8) * 180 / math.pi) % 360
-                        rad = (2.2 + stp * 2.2) * s
-                        p.drawArc(QRectF(offset_x - rad, -1.0 * s - rad, rad * 2, rad * 2), angle_start * 16, 120 * 16)
-                p.setBrush(QColor(80, 180, 255, 150))
-                p.setPen(Qt.PenStyle.NoPen)
-                p.drawEllipse(QRectF(-15.5 * s, 1.5 * s, 4.0 * s, 3.0 * s))
-                p.drawEllipse(QRectF(11.5 * s, 1.5 * s, 4.0 * s, 3.0 * s))
             elif self.has_headphones and self.state == self.STATE_DANCE:
                 p.setPen(QPen(QColor('#1DB954'), max(1, int(2.4 * s)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
                 p.drawArc(QRectF(-14 * s, -7 * s, 8 * s, 6 * s), 20 * 16, 140 * 16)
@@ -1474,7 +1345,3 @@ class DesktopRoboPet(QWidget):
                 col = QColor(pt["color"])
                 col.setAlpha(pt["alpha"])
                 draw_vector_heart(p, pt["x"], pt["y"], pt["r"] * s, col)
-            elif pt["type"] == "dizzy_star":
-                col = QColor(pt["color"])
-                col.setAlpha(pt["alpha"])
-                draw_vector_star(p, pt.get("x", self.width() / 2.0), pt.get("y", self.height() / 2.0 - 28), pt["size"] * s, col)

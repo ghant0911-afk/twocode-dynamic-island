@@ -3711,7 +3711,7 @@ class TwoCodeIsland(QWidget):
                 "sound_enabled": self.sound_enabled,
                 "always_on_top": self.always_on_top,
                 "desktop_pet_enabled": getattr(self, 'desktop_pet_enabled', True),
-                "selected_vrm_model": getattr(self, "selected_vrm_model", "Sendagaya_Shino.vrm"),
+                "selected_vrm_model": getattr(self, "selected_vrm_model", "Sendagaya_Shino_opt.vrm"),
                 "accent_color": getattr(self, "accent_color", "#F59E0B"),
                 "pos_x": self.custom_x,
                 "pos_y": self.custom_y

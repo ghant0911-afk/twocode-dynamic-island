@@ -29,9 +29,7 @@ states = [
     desktop_pet.DesktopRoboPet.STATE_DANCE,
     desktop_pet.DesktopRoboPet.STATE_SIT,
     desktop_pet.DesktopRoboPet.STATE_PICKED_UP,
-    desktop_pet.DesktopRoboPet.STATE_FALLING,
     desktop_pet.DesktopRoboPet.STATE_CELEBRATE,
-    desktop_pet.DesktopRoboPet.STATE_HURT,
 ]
 
 for st in states:
@@ -40,7 +38,7 @@ for st in states:
     pet._physics_step()
     pix = pet.grab()
     assert not pix.isNull(), f"Pixmap was null for state {st}"
-print("   All 8 states (including STATE_HURT) rendered cleanly into QPixmap!")
+print(f"   All {len(states)} active states rendered cleanly into QPixmap!")
 
 print("3. Testing 4 Expressive Dance Styles...")
 pet.state = desktop_pet.DesktopRoboPet.STATE_DANCE
@@ -63,23 +61,31 @@ assert pet.has_headphones == False, "Headphones must disappear when music pauses
 assert pet.state == desktop_pet.DesktopRoboPet.STATE_IDLE, "Pet MUST STOP dancing when music pauses!"
 print("   Honest music reactivity verified: dance stops immediately on pause!")
 
-print("5. Testing Fall Damage, Comic Squash & Orbiting Dizzy Stars...")
-pet.move(200, 100)
+print("5. Testing Gentle Placement (No Fall Damage) & Snap-to-Floor + Eco Assets...")
+assert not hasattr(pet, "STATE_FALLING"), "Fall module STATE_FALLING should be removed!"
+assert not hasattr(pet, "trigger_fall_damage"), "Fall module trigger_fall_damage should be removed!"
 pet.floor_y = 500
-pet.fall_start_y = 100
-pet.state = desktop_pet.DesktopRoboPet.STATE_FALLING
-pet.vy = 8.0 # High velocity drop
-pet.trigger_fall_damage(fall_dist=400, impact_speed=8.0)
-assert pet.state == desktop_pet.DesktopRoboPet.STATE_HURT, "Pet must enter STATE_HURT on hard fall!"
-assert pet.squash_factor > 1.2, "Pet must squash horizontally on impact!"
-assert any(p["type"] == "dizzy_star" for p in pet.particles), "Pet must spawn orbiting dizzy stars!"
-pet.repaint()
-pix_hurt = pet.grab()
-assert not pix_hurt.isNull()
-# Simulate recovery after hurt_timer
-pet.hurt_timer = 1
-pet._physics_step()
-assert pet.state == desktop_pet.DesktopRoboPet.STATE_IDLE, "Pet must recover back to IDLE after hurt daze!"
-print("   Fall damage, comic impact squash, dizzy stars, and recovery verified!")
+pet.move(200, 140)
+pet.dragging = True
+pet.state = desktop_pet.DesktopRoboPet.STATE_PICKED_UP
+from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtCore import QPointF
+rel_ev = QMouseEvent(QMouseEvent.Type.MouseButtonRelease, QPointF(20, 20), QPointF(220, 160), Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+pet.mouseReleaseEvent(rel_ev)
+assert pet.state == desktop_pet.DesktopRoboPet.STATE_IDLE, "Pet must calmly enter IDLE where placed!"
+assert pet.y() == 140, f"Pet should stay calmly at y=140 without falling, got y={pet.y()}"
+pet.snap_to_floor()
+assert pet.y() == 500, f"snap_to_floor() must return pet to floor_y=500, got y={pet.y()}"
+
+# Verify optimized VRM & drum GLB assets exist
+for mf, _, _ in desktop_pet.VRM_MODELS:
+    if mf != "robo":
+        assert os.path.exists(os.path.join(APP_DIR, "vrm_models", mf)), f"Missing model {mf}"
+assert os.path.exists(os.path.join(APP_DIR, "vrm_models", "drum_kit_opt.glb")), "Missing drum_kit_opt.glb"
+pet.toggle_eco_mode()
+assert pet.eco_mode == False
+pet.toggle_eco_mode()
+assert pet.eco_mode == True
+print("   Gentle drop placement, snap_to_floor(), eco toggle & all Eco assets verified!")
 
 print("\n>>> ALL DESKTOP PET ENHANCED TESTS PASSED WITH 100% SUCCESS! <<<")

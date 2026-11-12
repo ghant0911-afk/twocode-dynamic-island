@@ -173,7 +173,7 @@
     function ensureDrumAssetsLoaded() {
       if (!drumKit && !drumKitLoading) {
         drumKitLoading = true;
-        gltfLoader.load('drum_kit.glb', (gltf) => {
+        gltfLoader.load('drum_kit_opt.glb', (gltf) => {
           const rawScene = gltf.scene;
           const dkPos = drumAnimData?.drumKit?.pos || { x: -0.08, y: 0.72, z: 0.64 };
           const dkScale = drumAnimData?.drumKit?.scale || 0.56;
@@ -383,10 +383,12 @@
 
     const speedMap = {
       idle: 0.85,
+      idle_look: 0.85,
+      neutral_idle: 0.82,
+      standing_pose: 0.80,
       walk: 0.85,
       picked_up: 0.85,
-      falling: 0.90,
-      hurt: 0.80,
+      picked_up_alt: 0.85,
       sit: 0.75,
       wave: 0.95,
       celebrate: 0.90,
@@ -395,17 +397,22 @@
       dance_2: 0.88,
       hiphop: 0.88,
       twist_dance: 0.85,
-      silly_dance: 0.85
+      silly_dance: 0.85,
+      breakdance: 0.92,
+      samba: 0.90
     };
 
-    const danceNames = ['dance_1', 'dance_2', 'hiphop', 'twist_dance', 'silly_dance', 'celebrate'];
+    const idleVariations = ['idle', 'idle_look', 'neutral_idle', 'standing_pose'];
+    const danceNames = ['dance_1', 'dance_2', 'hiphop', 'twist_dance', 'silly_dance', 'breakdance', 'samba', 'celebrate'];
 
     const animConfig = {
       idle: 'animations/idle_loop.vrma',
+      idle_look: 'animations/idle_look.vrma',
+      neutral_idle: 'animations/neutral_idle.vrma',
+      standing_pose: 'animations/female_standing.vrma',
       walk: 'animations/running.vrma',
       picked_up: 'animations/hanging.vrma',
-      falling: 'animations/hanging.vrma',
-      hurt: 'animations/lay.vrma',
+      picked_up_alt: 'animations/hang.vrma',
       sit: 'animations/sit.vrma',
       wave: 'animations/wave_fast.vrma',
       celebrate: 'animations/joyful_jump.vrma',
@@ -414,7 +421,9 @@
       dance_2: 'animations/dance_2.vrma',
       hiphop: 'animations/hiphop.vrma',
       twist_dance: 'animations/twist_dance.vrma',
-      silly_dance: 'animations/silly_dance.vrma'
+      silly_dance: 'animations/silly_dance.vrma',
+      breakdance: 'animations/breakdance.vrma',
+      samba: 'animations/samba.vrma'
     };
 
     const lookAtTarget = new THREE.Object3D();
@@ -444,10 +453,7 @@
           }
           const avgX = sumX / count, avgY = sumY / count, avgZ = sumZ / count;
           const isSit = animKey === 'sit';
-          const isHurt = animKey === 'hurt';
-          let targetY = restY;
-          if (isSit) targetY = restY * 0.62;
-          if (isHurt) targetY = restY * 0.32;
+          let targetY = isSit ? restY * 0.62 : restY;
           for (let i = 0; i < count; i++) {
             vals[i * 3 + 0] = (vals[i * 3 + 0] - avgX) * 0.45;
             const newY = targetY + (vals[i * 3 + 1] - avgY);
@@ -477,7 +483,7 @@
             const rawClip = createVRMAnimationClip(vrma, vrm);
             const sanitizedClip = sanitizeClip(rawClip, vrm, key);
             const action = mixer.clipAction(sanitizedClip);
-            if (key === 'hurt' || key === 'wave' || key === 'celebrate') {
+            if (key === 'wave' || key === 'celebrate') {
               action.setLoop(THREE.LoopOnce);
               action.clampWhenFinished = true;
             } else {
@@ -530,7 +536,7 @@
 
         // Pre-warm core interactive animations sequentially in background (zero stutter on first fall/walk!)
         setTimeout(async () => {
-          const warmKeys = ['walk', 'hurt', 'sit', 'picked_up', 'wave', 'celebrate'];
+          const warmKeys = ['walk', 'sit', 'picked_up', 'wave', 'celebrate', 'idle_look', 'neutral_idle'];
           for (const k of warmKeys) {
             try { await ensureActionLoaded(k, vrm); } catch (e) {}
           }
@@ -639,13 +645,12 @@
         applyFingerGrip(currentVRM, false);
       }
 
-      if (currentState === 'picked_up' || currentState === 'falling') {
+      if (currentState === 'picked_up') {
         currentVRM?.expressionManager?.setValue('surprised', 1.0);
-        playAction('picked_up', 0.2);
-      } else if (currentState === 'hurt') {
-        currentVRM?.expressionManager?.setValue('sad', 0.9);
-        currentVRM?.expressionManager?.setValue('blink', 0.8);
-        playAction('hurt', 0.15);
+        const pickKey = (Math.random() < 0.4 && actions['picked_up_alt']) ? 'picked_up_alt' : 'picked_up';
+        playAction(pickKey, 0.2);
+        // Lazy-cache alternate hang pose cleanly for next pickup
+        if (!actions['picked_up_alt'] && currentVRM) ensureActionLoaded('picked_up_alt', currentVRM).catch(() => {});
       } else if (currentState === 'sit') {
         currentVRM?.expressionManager?.setValue('relaxed', 1.0);
         playAction('sit', 0.35);
@@ -722,7 +727,24 @@
       window.setLookAt(normX, normY);
     });
 
-    // 6. Smooth VSYNC-locked Render Loop (Zero Cadence Judder / Zero Stutter)
+    // Expose idle variation selector & eco FPS control
+    let ecoMode = true; // Auto-adaptive: 60 FPS active, exact VSYNC-locked 30 FPS calm idle (-50% GPU/CPU)
+    let isRenderPaused = false;
+    let ecoFrameParity = 0;
+    let idleVarTimer = 11.0;
+    let idleVarIndex = 0;
+
+    window.setEcoMode = (enabled) => { ecoMode = Boolean(enabled); };
+    window.getEcoMode = () => ecoMode;
+    window.setRenderPaused = (paused) => { isRenderPaused = Boolean(paused); };
+    window.playIdleVariation = (idx) => {
+      if (isDrummingActive || currentState !== 'idle') return null;
+      const key = idleVariations[(idx ?? (++idleVarIndex)) % idleVariations.length];
+      playAction(key, 0.55);
+      return key;
+    };
+
+    // 6. Adaptive VSYNC-locked Render Loop (60 FPS Active / Clean Locked 30 FPS Idle — Zero Cadence Judder!)
     const clock = new THREE.Clock();
     let elapsedTotal = 0;
     let blinkTimer = 2.0;
@@ -732,16 +754,28 @@
 
     function animate() {
       requestAnimationFrame(animate);
+      if (document.hidden || isRenderPaused) return;
 
-      // Real-time delta clamped to [0.001, 0.05] for buttery-smooth frame progression
-      const delta = Math.min(clock.getDelta(), 0.05);
+      const targetCamPos = isDrummingActive ? camDrumPos : camStandPos;
+      const targetCamLook = isDrummingActive ? camDrumLook : camStandLook;
+      const camMoving = camera.position.distanceToSquared(targetCamPos) > 0.0004;
+      const rotMoving = currentVRM && Math.abs(targetRotationY - currentVRM.scene.rotation.y) > 0.005;
+      const mouseActive = (Date.now() - lastMouseMoveTime) < 1200;
+      const isActive = isDrummingActive || isTalking || isBlinking || camMoving || rotMoving || mouseActive || (currentState !== 'idle' && currentState !== 'sit');
+
+      // Skip strictly every 2nd VSYNC tick (exact 30.0 FPS flat!) in calm idle when Eco Mode is active
+      if (ecoMode && !isActive) {
+        ecoFrameParity = (ecoFrameParity + 1) & 1;
+        if (ecoFrameParity === 1) return;
+      }
+
+      // Real-time delta clamped cleanly for smooth frame progression
+      const delta = Math.min(clock.getDelta(), 0.06);
       if (delta <= 0) return;
       elapsedTotal += delta;
 
       // Smoothly interpolate camera framing between standing and seated drumming
-      const targetCamPos = isDrummingActive ? camDrumPos : camStandPos;
-      const targetCamLook = isDrummingActive ? camDrumLook : camStandLook;
-      if (camera.position.distanceToSquared(targetCamPos) > 0.0001) {
+      if (camMoving) {
         camera.position.lerp(targetCamPos, 0.14);
         _curLookTarget.lerp(targetCamLook, 0.14);
         camera.lookAt(_curLookTarget);
@@ -751,14 +785,21 @@
         if (isDrummingActive) {
           drumTime = (drumTime + delta) % drumDuration;
           applyDrummingFrame(currentVRM, drumTime);
-        } else if (mixer) {
-          mixer.update(delta);
+        } else {
+          if (currentState === 'idle' && !isTalking) {
+            idleVarTimer -= delta;
+            if (idleVarTimer <= 0) {
+              idleVarTimer = 10.0 + Math.random() * 6.0;
+              window.playIdleVariation();
+            }
+          }
+          if (mixer) mixer.update(delta);
         }
 
         currentVRM.update(delta);
 
-        // Hips safety guard: only guard against runaway NaN or extreme model drop (never snap during hurt or run!)
-        if (!isDrummingActive && currentState !== 'hurt') {
+        // Hips safety guard against runaway NaN or sinking below floor
+        if (!isDrummingActive) {
           const hips = currentVRM.humanoid?.getNormalizedBoneNode('hips');
           if (hips) {
             if (isNaN(hips.position.y) || hips.position.y < 0.10) hips.position.y = 0.893;
@@ -767,14 +808,16 @@
           }
         }
 
-        currentVRM.scene.rotation.y += (targetRotationY - currentVRM.scene.rotation.y) * 0.15;
+        if (rotMoving) {
+          currentVRM.scene.rotation.y += (targetRotationY - currentVRM.scene.rotation.y) * 0.15;
+        }
 
-        if (Date.now() - lastMouseMoveTime > 2500) {
+        if (!mouseActive && (Date.now() - lastMouseMoveTime > 2500)) {
           desiredLookAt.set(Math.sin(elapsedTotal * 0.45) * 0.6, 1.35 + Math.cos(elapsedTotal * 0.3) * 0.2, 10.0);
         }
         lookAtTarget.position.lerp(desiredLookAt, 0.10);
 
-        if (currentState !== 'hurt' && !isDrummingActive) {
+        if (!isDrummingActive) {
           blinkTimer -= delta;
           if (blinkTimer <= 0) {
             isBlinking = true;
