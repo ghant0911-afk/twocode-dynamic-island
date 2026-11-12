@@ -79,6 +79,60 @@ def is_cursor_in_silhouette(
     return (x_min <= local_x <= x_max) and (y_min <= local_y <= y_max)
 
 
+def is_cursor_in_head_region(
+    local_x: float,
+    local_y: float,
+    width: int,
+    height: int,
+    character: str = "shino",
+) -> bool:
+    """
+    Determine whether cursor is hovering over the head region of the avatar.
+    Used for triggering cute interactive head-patting reactions (happy squint, blush, hearts).
+    """
+    if width <= 0 or height <= 0:
+        return False
+    x_min, x_max = width * 0.30, width * 0.70
+    y_min, y_max = height * 0.12, height * 0.38
+    return (x_min <= local_x <= x_max) and (y_min <= local_y <= y_max)
+
+
+def get_active_window_perch_rect(own_hwnds: set | None = None) -> tuple[int, int, int, int] | None:
+    """
+    Get (left, top, right, bottom) of foreground window suitable for Astra to perch on.
+    Returns None if foreground is desktop, minimized, or pet's own window.
+    """
+    if not user32:
+        return None
+    try:
+        fg = user32.GetForegroundWindow()
+        if not fg:
+            return None
+        if own_hwnds and int(fg) in own_hwnds:
+            return None
+        if not user32.IsWindowVisible(fg) or user32.IsIconic(fg):
+            return None
+
+        cls_buf = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(fg, cls_buf, 256)
+        cls_name = cls_buf.value
+        if cls_name in SHELL_WINDOW_CLASSES:
+            return None
+
+        w_rect = _RECT()
+        if not user32.GetWindowRect(fg, ctypes.byref(w_rect)):
+            return None
+
+        w = w_rect.right - w_rect.left
+        h = w_rect.bottom - w_rect.top
+        if w < 160 or h < 120:
+            return None
+
+        return (w_rect.left, w_rect.top, w_rect.right, w_rect.bottom)
+    except Exception:
+        return None
+
+
 def rect_covers_monitor(win_rect: tuple, mon_rect: tuple, class_name: str = "") -> bool:
     """Pure geometry check whether a foreground window cleanly covers a full monitor."""
     if class_name in SHELL_WINDOW_CLASSES:

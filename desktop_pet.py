@@ -30,6 +30,8 @@ from pet_sensors import (
     FullscreenAppDetector,
     SystemAudioBeatDetector,
     is_cursor_in_silhouette,
+    is_cursor_in_head_region,
+    get_active_window_perch_rect,
 )
 from PyQt6.QtCore import (
     Qt, QPoint, QPointF, QRectF, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve
@@ -148,6 +150,8 @@ class DesktopRoboPet(QWidget):
     STATE_WALK = "walk"
     STATE_DANCE = "dance"
     STATE_SIT = "sit"
+    STATE_LAY = "lay"
+    STATE_PERCH = "perch"
     STATE_PICKED_UP = "picked_up"
     STATE_CELEBRATE = "celebrate"
 
@@ -215,6 +219,14 @@ class DesktopRoboPet(QWidget):
         self.blink_tick = 0
         self.is_blinking = False
         self.dangle_phase = 0.0
+
+        # Dynamic Velocity & Inertial Physics (Stella-Grade Motion Momentum)
+        self.smooth_vx = 0.0
+        self.smooth_vy = 0.0
+        self._prev_x = 0
+        self._prev_y = 0
+        self._last_pet_ts = 0.0
+        self._pet_hover_count = 0
 
         # Desktop anchor, Eco, Click-through & Smart Sensors
         self.floor_y = 600
@@ -312,6 +324,8 @@ class DesktopRoboPet(QWidget):
             self.floor_y = 700
             self.move(300, self.floor_y)
             self.subpixel_x = 300.0
+        self._prev_x = self.x()
+        self._prev_y = self.y()
 
     def set_music(self, is_playing: bool):
         if self.forced_music:
@@ -349,15 +363,22 @@ class DesktopRoboPet(QWidget):
             self.ai_timer.setInterval(8000)
             return
 
-        # Regular state choices (no floating sit on air)
+        # Regular state choices with rich varied behaviors (walk, idle, sit, lay)
         r = random.random()
         if r < 0.35:
             self.state = self.STATE_WALK
             self.facing_direction = random.choice([-1, 1])
             self.ai_timer.setInterval(random.randint(4000, 7000))
-        else:
+        elif r < 0.70:
             self.state = self.STATE_IDLE
             self.ai_timer.setInterval(random.randint(4500, 8500))
+        elif r < 0.88:
+            self.state = self.STATE_SIT
+            self.ai_timer.setInterval(random.randint(5000, 9000))
+        else:
+            self.state = self.STATE_LAY
+            self.ai_timer.setInterval(random.randint(4000, 8000))
+        self._sync_vrm_state()
 
     def register_own_hwnd(self, hwnd: int):
         if hwnd:
@@ -447,6 +468,21 @@ class DesktopRoboPet(QWidget):
             return
 
         self.anim_tick += 1
+
+        # Real-time velocity tracking for dynamic body lean & SpringBone inertia (Stella physics)
+        cur_x, cur_y = self.x(), self.y()
+        inst_vx = (cur_x - getattr(self, '_prev_x', cur_x)) / 0.033
+        inst_vy = (cur_y - getattr(self, '_prev_y', cur_y)) / 0.033
+        self._prev_x, self._prev_y = cur_x, cur_y
+
+        self.smooth_vx += (inst_vx - self.smooth_vx) * 0.35
+        self.smooth_vy += (inst_vy - self.smooth_vy) * 0.35
+
+        if self.character == "shino" and hasattr(self, 'vrm_view') and self.vrm_view:
+            if abs(self.smooth_vx) > 0.4 or abs(self.smooth_vy) > 0.4 or (self.anim_tick % 10 == 0):
+                self.vrm_view.page().runJavaScript(
+                    f"window.setMotionVelocity && window.setMotionVelocity({self.smooth_vx:.2f}, {self.smooth_vy:.2f})"
+                )
 
         # Auto-sync state and facing changes to 3D VRM runtime
         if not hasattr(self, '_last_synced_vrm_state'):
@@ -539,7 +575,7 @@ class DesktopRoboPet(QWidget):
             need_paint = len(self.particles) > 0
         else:
             need_paint = (
-                self.state in [self.STATE_WALK, self.STATE_DANCE, self.STATE_PICKED_UP, self.STATE_CELEBRATE]
+                self.state in [self.STATE_WALK, self.STATE_DANCE, self.STATE_PICKED_UP, self.STATE_CELEBRATE, self.STATE_SIT, self.STATE_LAY, self.STATE_PERCH]
                 or self.is_blinking
                 or len(self.particles) > 0
             )
@@ -626,6 +662,7 @@ class DesktopRoboPet(QWidget):
             self._clamp_to_screen()
             self.state = self.STATE_IDLE
             self._sync_vrm_state()
+            self.show_speech_bubble("Осторожно приземлилась! ✨", duration_ms=2500)
             event.accept()
 
     def mouseDoubleClickEvent(self, event):
@@ -711,6 +748,21 @@ class DesktopRoboPet(QWidget):
         act_sit = QAction("🪑 Сесть отдохнуть", self)
         act_sit.triggered.connect(lambda: self._set_manual_state(self.STATE_SIT))
         menu.addAction(act_sit)
+
+        # Lay Action
+        act_lay = QAction("🛏️ Прилечь отдохнуть", self)
+        act_lay.triggered.connect(lambda: self._set_manual_state(self.STATE_LAY))
+        menu.addAction(act_lay)
+
+        # Perch on active window
+        act_perch = QAction("🧗 Взобраться на активное окно", self)
+        act_perch.triggered.connect(self.perch_on_active_window)
+        menu.addAction(act_perch)
+
+        # Pet Head Action
+        act_pet = QAction("✨ Погладить по голове", self)
+        act_pet.triggered.connect(self.react_to_head_pet)
+        menu.addAction(act_pet)
 
         # Snap back to taskbar floor
         act_floor = QAction("📍 Вернуть на панель задач", self)
@@ -864,6 +916,59 @@ class DesktopRoboPet(QWidget):
         except Exception:
             pass
 
+    def react_to_head_pet(self):
+        """Cute interactive reaction when the user gently pets Astra's head."""
+        import time
+        now = time.monotonic()
+        if now - getattr(self, '_last_pet_ts', 0.0) < 2.5:
+            return
+        self._last_pet_ts = now
+        self.spawn_hearts(4)
+        if hasattr(self, 'vrm_view') and self.vrm_view:
+            self.vrm_view.page().runJavaScript("window.triggerHeadPet && window.triggerHeadPet(2500)")
+
+        purrs = [
+            "Мрр... так приятно! ✨",
+            "Спасибо за ласку! Люблю тебя 💖",
+            "Хи-хи, щёкотно! 🥰",
+            "Ты самый лучший! 🌸",
+            "Ммм... тепло и уютно! ✨"
+        ]
+        chosen = random.choice(purrs)
+        self.show_speech_bubble(chosen, duration_ms=3200)
+        try:
+            from voice_engine import VoiceEngine
+            VoiceEngine.get().speak(chosen)
+        except Exception:
+            pass
+
+    def perch_on_active_window(self):
+        """Climb / perch gently onto the top border of the active window."""
+        rect = get_active_window_perch_rect(self._own_hwnds)
+        if not rect:
+            self.show_speech_bubble("Не вижу активного окна, сижу тут! 😊", duration_ms=3000)
+            return False
+
+        wl, wt, wr, wb = rect
+        screen = QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen else None
+
+        target_w = self.width()
+        target_x = wl + (wr - wl) // 2 - target_w // 2
+        if avail:
+            target_x = max(avail.left() + 4, min(avail.right() - target_w - 4, target_x))
+
+        target_y = wt - self.height() + 18
+        if avail:
+            target_y = max(avail.top() + 4, min(self.floor_y, target_y))
+
+        self.move(target_x, target_y)
+        self.subpixel_x = float(target_x)
+        self.state = self.STATE_SIT
+        self._sync_vrm_state()
+        self.show_speech_bubble("Устроилась на твоём окне! 🪟✨", duration_ms=3500)
+        return True
+
     def open_talk_dialog(self):
         """Opens quick interactive speech dialog with Astra"""
         try:
@@ -918,12 +1023,21 @@ class DesktopRoboPet(QWidget):
                         norm_x = (event.position().x() / max(1, self.width())) * 2.0 - 1.0
                         norm_y = (event.position().y() / max(1, self.height())) * 2.0 - 1.0
                         self.vrm_view.page().runJavaScript(f"window.setLookAt && window.setLookAt({norm_x:.2f}, {norm_y:.2f})")
+                    pos = event.position()
+                    if is_cursor_in_head_region(pos.x(), pos.y(), self.width(), self.height(), self.character):
+                        self._pet_hover_count = getattr(self, '_pet_hover_count', 0) + 1
+                        if self._pet_hover_count >= 5:
+                            self._pet_hover_count = 0
+                            self.react_to_head_pet()
+                    else:
+                        self._pet_hover_count = max(0, getattr(self, '_pet_hover_count', 0) - 1)
             elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
                 if self.dragging:
                     self.dragging = False
                     self._clamp_to_screen()
                     self.state = self.STATE_IDLE
                     self._sync_vrm_state()
+                    self.show_speech_bubble("Осторожно приземлилась! ✨", duration_ms=2500)
                     return True
                 else:
                     self.react_to_click()
@@ -1123,13 +1237,22 @@ class DesktopRoboPet(QWidget):
             arm_r_angle = -35.0 - math.cos(self.dangle_phase * 1.5) * 15.0
             string_sway = math.sin(self.dangle_phase) * 10.0
 
-        elif self.state == self.STATE_SIT:
+        elif self.state in [self.STATE_SIT, self.STATE_PERCH]:
             walk_bob = 8.0 * s
             leg_l_angle = 70.0
             leg_r_angle = 70.0
             arm_l_angle = 10.0
             arm_r_angle = 10.0
             head_bob = 2.0 * s
+
+        elif self.state == self.STATE_LAY:
+            walk_bob = 14.0 * s
+            leg_l_angle = 12.0
+            leg_r_angle = 12.0
+            arm_l_angle = -15.0
+            arm_r_angle = -15.0
+            head_tilt = 18.0
+            head_bob = 12.0 * s
 
         elif self.state == self.STATE_IDLE:
             # Subtle breathing

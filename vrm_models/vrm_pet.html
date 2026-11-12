@@ -390,6 +390,7 @@
       picked_up: 0.85,
       picked_up_alt: 0.85,
       sit: 0.75,
+      lay: 0.85,
       wave: 0.95,
       celebrate: 0.90,
       talk: 0.85,
@@ -414,6 +415,7 @@
       picked_up: 'animations/hanging.vrma',
       picked_up_alt: 'animations/hang.vrma',
       sit: 'animations/sit.vrma',
+      lay: 'animations/lay.vrma',
       wave: 'animations/wave_fast.vrma',
       celebrate: 'animations/joyful_jump.vrma',
       talk: 'animations/talking.vrma',
@@ -453,7 +455,8 @@
           }
           const avgX = sumX / count, avgY = sumY / count, avgZ = sumZ / count;
           const isSit = animKey === 'sit';
-          let targetY = isSit ? restY * 0.62 : restY;
+          const isLay = animKey === 'lay';
+          let targetY = isLay ? restY * 0.18 : (isSit ? restY * 0.62 : restY);
           for (let i = 0; i < count; i++) {
             vals[i * 3 + 0] = (vals[i * 3 + 0] - avgX) * 0.45;
             const newY = targetY + (vals[i * 3 + 1] - avgY);
@@ -605,14 +608,31 @@
 
     init();
 
+    function setExpressionSafe(name, val) {
+      if (!currentVRM?.expressionManager) return;
+      const em = currentVRM.expressionManager;
+      if (em.expressionMap && em.expressionMap[name] !== undefined) {
+        em.setValue(name, val);
+        return;
+      }
+      const lower = String(name).toLowerCase();
+      if (em.expressionMap) {
+        for (const k in em.expressionMap) {
+          if (k.toLowerCase() === lower) {
+            em.setValue(k, val);
+            return;
+          }
+        }
+      }
+      try { em.setValue(name, val); } catch (e) {}
+    }
+
     // 5. Global API exposed to Python PyQt6
     window.setPetState = (state, facingDirection) => {
       currentState = state || 'idle';
-      if (currentVRM?.expressionManager) {
-        ['happy', 'relaxed', 'surprised', 'sad', 'angry'].forEach(e => {
-          currentVRM.expressionManager.setValue(e, 0);
-        });
-      }
+      ['happy', 'relaxed', 'surprised', 'sad', 'angry'].forEach(e => {
+        setExpressionSafe(e, 0);
+      });
 
       if (facingDirection !== undefined) {
         if (facingDirection < 0) targetRotationY = Math.PI - 0.35;
@@ -635,8 +655,8 @@
           currentAction = null;
         }
         applyFingerGrip(currentVRM, true);
-        currentVRM?.expressionManager?.setValue('happy', 0.95);
-        currentVRM?.expressionManager?.setValue('relaxed', 0.2);
+        setExpressionSafe('happy', 0.95);
+        setExpressionSafe('relaxed', 0.2);
         targetRotationY = Math.PI;
         drumTime = 0;
         if (currentVRM) applyDrummingFrame(currentVRM, 0);
@@ -646,27 +666,31 @@
       }
 
       if (currentState === 'picked_up') {
-        currentVRM?.expressionManager?.setValue('surprised', 1.0);
+        setExpressionSafe('surprised', 1.0);
         const pickKey = (Math.random() < 0.4 && actions['picked_up_alt']) ? 'picked_up_alt' : 'picked_up';
-        playAction(pickKey, 0.2);
+        playAction(pickKey, 0.35);
         // Lazy-cache alternate hang pose cleanly for next pickup
         if (!actions['picked_up_alt'] && currentVRM) ensureActionLoaded('picked_up_alt', currentVRM).catch(() => {});
       } else if (currentState === 'sit') {
-        currentVRM?.expressionManager?.setValue('relaxed', 1.0);
-        playAction('sit', 0.35);
+        setExpressionSafe('relaxed', 1.0);
+        playAction('sit', 0.50);
+      } else if (currentState === 'lay') {
+        setExpressionSafe('relaxed', 0.95);
+        setExpressionSafe('happy', 0.20);
+        playAction('lay', 0.55);
       } else if (currentState === 'walk') {
-        currentVRM?.expressionManager?.setValue('relaxed', 0.3);
-        playAction('walk', 0.25);
+        setExpressionSafe('relaxed', 0.3);
+        playAction('walk', 0.35);
       } else if (currentState === 'wave') {
-        currentVRM?.expressionManager?.setValue('happy', 1.0);
-        playAction('wave', 0.25);
+        setExpressionSafe('happy', 1.0);
+        playAction('wave', 0.30);
       } else if (currentState === 'celebrate') {
-        currentVRM?.expressionManager?.setValue('happy', 1.0);
-        playAction('celebrate', 0.25);
+        setExpressionSafe('happy', 1.0);
+        playAction('celebrate', 0.30);
       } else {
-        currentVRM?.expressionManager?.setValue('relaxed', 0.35);
-        currentVRM?.expressionManager?.setValue('happy', 0.15);
-        playAction('idle', 0.35);
+        setExpressionSafe('relaxed', 0.35);
+        setExpressionSafe('happy', 0.15);
+        playAction('idle', 0.45);
       }
     };
 
@@ -690,19 +714,17 @@
     };
 
     window.setEmotion = (emotion) => {
-      const em = currentVRM?.expressionManager;
-      if (!em) return;
-      ['happy', 'relaxed', 'surprised', 'sad', 'angry'].forEach(e => em.setValue(e, 0));
+      ['happy', 'relaxed', 'surprised', 'sad', 'angry'].forEach(e => setExpressionSafe(e, 0));
       if (emotion === 'happy' || emotion === 'star' || emotion === 'celebrate') {
-        em.setValue('happy', 0.9);
+        setExpressionSafe('happy', 0.9);
       } else if (emotion === 'surprised' || emotion === 'shock') {
-        em.setValue('surprised', 0.85);
+        setExpressionSafe('surprised', 0.85);
       } else if (emotion === 'sad' || emotion === 'dizzy') {
-        em.setValue('sad', 0.75);
+        setExpressionSafe('sad', 0.75);
       } else if (emotion === 'angry') {
-        em.setValue('angry', 0.75);
+        setExpressionSafe('angry', 0.75);
       } else if (emotion === 'thinking' || emotion === 'relaxed') {
-        em.setValue('relaxed', 0.8);
+        setExpressionSafe('relaxed', 0.8);
       }
     };
 
@@ -740,6 +762,41 @@
       lastMouseMoveTime = Date.now();
       desiredLookAt.x = screenNormX * 2.2;
       desiredLookAt.y = 1.35 - screenNormY * 1.8;
+    };
+
+    // Dynamic Window Inertia (Velocity Tracking for Body Lean & SpringBone Wind)
+    let smoothedVx = 0.0;
+    let smoothedVy = 0.0;
+    let targetBodyRoll = 0.0;
+    let targetBodyPitch = 0.0;
+
+    window.setMotionVelocity = (vx, vy) => {
+      const vX = Number(vx) || 0.0;
+      const vY = Number(vy) || 0.0;
+      smoothedVx += (vX - smoothedVx) * 0.35;
+      smoothedVy += (vY - smoothedVy) * 0.35;
+    };
+
+    window.getMotionVelocity = () => ({
+      vx: smoothedVx,
+      vy: smoothedVy,
+      roll: targetBodyRoll,
+      pitch: targetBodyPitch
+    });
+
+    // Multi-Bone Natural LookAt Kinematics, Saccades & Petting Interaction
+    let curHeadYaw = 0.0;
+    let curHeadPitch = 0.0;
+    let saccadeTimer = 2.5;
+    const saccadeOffset = new THREE.Vector2(0, 0);
+    let isPettingActive = false;
+    let pettingTimer = 0.0;
+
+    window.triggerHeadPet = (durationMs) => {
+      isPettingActive = true;
+      pettingTimer = Math.max(1.2, (Number(durationMs) || 2200) / 1000.0);
+      setExpressionSafe('happy', 1.0);
+      setExpressionSafe('relaxed', 0.85);
     };
 
     window.nextDance = () => {
@@ -795,14 +852,15 @@
 
     function animate() {
       requestAnimationFrame(animate);
-      if (document.hidden || isRenderPaused) return;
+      if (isRenderPaused) return;
 
       const targetCamPos = isDrummingActive ? camDrumPos : camStandPos;
       const targetCamLook = isDrummingActive ? camDrumLook : camStandLook;
       const camMoving = camera.position.distanceToSquared(targetCamPos) > 0.0004;
       const rotMoving = currentVRM && Math.abs(targetRotationY - currentVRM.scene.rotation.y) > 0.005;
       const mouseActive = (Date.now() - lastMouseMoveTime) < 1200;
-      const isActive = isDrummingActive || isTalking || isBlinking || camMoving || rotMoving || mouseActive || (currentState !== 'idle' && currentState !== 'sit');
+      const velMoving = (Math.abs(smoothedVx) > 0.05 || Math.abs(smoothedVy) > 0.05);
+      const isActive = isDrummingActive || isTalking || isBlinking || camMoving || rotMoving || mouseActive || velMoving || isPettingActive || (currentState !== 'idle' && currentState !== 'sit' && currentState !== 'lay');
 
       // Skip strictly every 2nd VSYNC tick (exact 30.0 FPS flat!) in calm idle when Eco Mode is active
       if (ecoMode && !isActive) {
@@ -813,7 +871,16 @@
       // Real-time delta clamped cleanly for smooth frame progression
       const delta = Math.min(clock.getDelta(), 0.06);
       if (delta <= 0) return;
+      animateCore(delta);
+    }
+
+    function animateCore(delta) {
       elapsedTotal += delta;
+
+      const targetCamPos = isDrummingActive ? camDrumPos : camStandPos;
+      const targetCamLook = isDrummingActive ? camDrumLook : camStandLook;
+      const camMoving = camera.position.distanceToSquared(targetCamPos) > 0.0004;
+      const rotMoving = currentVRM && Math.abs(targetRotationY - currentVRM.scene.rotation.y) > 0.005;
 
       // Smoothly interpolate camera framing between standing and seated drumming
       if (camMoving) {
@@ -836,7 +903,7 @@
           }
         } else {
           if (drumStageGroup.scale.x !== 1.0) drumStageGroup.scale.set(1.0, 1.0, 1.0);
-          if (currentState === 'idle' && !isTalking) {
+          if (currentState === 'idle' && !isTalking && !isPettingActive) {
             idleVarTimer -= delta;
             if (idleVarTimer <= 0) {
               idleVarTimer = 10.0 + Math.random() * 6.0;
@@ -844,6 +911,129 @@
             }
           }
           if (mixer) mixer.update(delta);
+
+          // 1. Dynamic Window Velocity Inertia: Body Roll & Pitch
+          smoothedVx *= 0.92;
+          smoothedVy *= 0.92;
+          targetBodyRoll = -THREE.MathUtils.clamp(smoothedVx * 0.0055, -0.22, 0.22);
+          targetBodyPitch = THREE.MathUtils.clamp(smoothedVy * 0.0055, -0.18, 0.18);
+
+          if (currentState !== 'lay') {
+            currentVRM.scene.rotation.z += (targetBodyRoll - currentVRM.scene.rotation.z) * 0.16;
+            currentVRM.scene.rotation.x += (targetBodyPitch - currentVRM.scene.rotation.x) * 0.16;
+          } else {
+            currentVRM.scene.rotation.z += (0.0 - currentVRM.scene.rotation.z) * 0.16;
+            currentVRM.scene.rotation.x += (0.0 - currentVRM.scene.rotation.x) * 0.16;
+          }
+
+          // 2. SpringBone Dynamic Wind / Inertia Response
+          if (currentVRM.springBoneManager) {
+            const windX = -smoothedVx * 0.015;
+            const windY = -smoothedVy * 0.012;
+            const speedMag = Math.hypot(windX, windY);
+            const gravDirX = THREE.MathUtils.clamp(windX, -0.75, 0.75);
+            const gravDirY = THREE.MathUtils.clamp(-1.0 + windY, -1.8, -0.3);
+            currentVRM.springBoneManager.joints.forEach(joint => {
+              if (joint.settings) {
+                joint.settings.gravityDir.set(gravDirX, gravDirY, 0).normalize();
+                joint.settings.gravityPower = 1.0 + Math.min(3.5, speedMag * 2.8);
+              }
+            });
+          }
+
+          // 3. Multi-Bone Natural LookAt Kinematic Chain & Natural Saccades
+          saccadeTimer -= delta;
+          if (saccadeTimer <= 0) {
+            saccadeTimer = 2.0 + Math.random() * 3.0;
+            saccadeOffset.set((Math.random() - 0.5) * 0.08, (Math.random() - 0.5) * 0.05);
+          } else {
+            saccadeOffset.multiplyScalar(0.92);
+          }
+
+          if (isPettingActive) {
+            pettingTimer -= delta;
+            if (pettingTimer <= 0) {
+              isPettingActive = false;
+              if (currentState === 'idle') {
+                setExpressionSafe('happy', 0.20);
+                setExpressionSafe('relaxed', 0.35);
+              }
+            }
+          }
+
+          const dx = lookAtTarget.position.x - 0.0;
+          const dy = lookAtTarget.position.y - 1.30;
+          const dz = lookAtTarget.position.z - 0.0;
+          const rawYaw = Math.atan2(dx, dz);
+          const rawPitch = -Math.atan2(dy, Math.hypot(dx, dz));
+          const facingRelYaw = rawYaw - (targetRotationY - Math.PI);
+          const clampedYaw = THREE.MathUtils.clamp(facingRelYaw, -0.72, 0.72);
+          const clampedPitch = THREE.MathUtils.clamp(rawPitch, -0.38, 0.32);
+          curHeadYaw += (clampedYaw + saccadeOffset.x - curHeadYaw) * 0.12;
+          curHeadPitch += (clampedPitch + saccadeOffset.y - curHeadPitch) * 0.12;
+
+          if (currentState !== 'lay') {
+            const neck = currentVRM.humanoid?.getNormalizedBoneNode('neck');
+            const head = currentVRM.humanoid?.getNormalizedBoneNode('head');
+            const upperChest = currentVRM.humanoid?.getNormalizedBoneNode('upperChest');
+            if (neck) {
+              neck.rotation.y += curHeadYaw * 0.22;
+              neck.rotation.x += curHeadPitch * 0.18;
+            }
+            if (head) {
+              head.rotation.y += curHeadYaw * 0.65;
+              head.rotation.x += curHeadPitch * 0.65;
+              if (isPettingActive) {
+                head.rotation.z += 0.14; // soft lean into petting hand
+              }
+            }
+            if (upperChest) {
+              upperChest.rotation.y += curHeadYaw * 0.13;
+              upperChest.rotation.x += curHeadPitch * 0.15;
+            }
+          }
+
+          // 4. Procedural Secondary Dynamics: Organic Breathing
+          const breath = Math.sin(elapsedTotal * 1.57);
+          const chestNode = currentVRM.humanoid?.getNormalizedBoneNode('chest');
+          const spineNode = currentVRM.humanoid?.getNormalizedBoneNode('spine');
+          if (chestNode) {
+            chestNode.scale.set(1.0 + breath * 0.015, 1.0 + breath * 0.022, 1.0 + breath * 0.015);
+          }
+          if (spineNode && currentState !== 'lay') {
+            spineNode.rotation.x += breath * 0.010;
+          }
+
+          // 5. Procedural Idle Fidgeting / Weight Shifting
+          if (currentState === 'idle' && !isTalking && !isPettingActive) {
+            const shift = Math.sin(elapsedTotal * 0.28);
+            const hips = currentVRM.humanoid?.getNormalizedBoneNode('hips');
+            if (hips) {
+              hips.position.x += shift * 0.014;
+              hips.rotation.z += shift * 0.012;
+            }
+          }
+
+          // 6. Playful Sitting Leg Swings
+          if (currentState === 'sit') {
+            const leftLL = currentVRM.humanoid?.getNormalizedBoneNode('leftLowerLeg');
+            const rightLL = currentVRM.humanoid?.getNormalizedBoneNode('rightLowerLeg');
+            if (leftLL) leftLL.rotation.x += Math.sin(elapsedTotal * 1.6) * 0.12;
+            if (rightLL) rightLL.rotation.x += Math.sin(elapsedTotal * 1.6 + 0.8) * 0.10;
+          }
+
+          // 7. Picked Up / Grabbed Dangling Dynamics
+          if (currentState === 'picked_up') {
+            const dangle = Math.sin(elapsedTotal * 3.2);
+            const leftUL = currentVRM.humanoid?.getNormalizedBoneNode('leftUpperLeg');
+            const rightUL = currentVRM.humanoid?.getNormalizedBoneNode('rightUpperLeg');
+            const leftLL = currentVRM.humanoid?.getNormalizedBoneNode('leftLowerLeg');
+            const rightLL = currentVRM.humanoid?.getNormalizedBoneNode('rightLowerLeg');
+            if (leftUL) leftUL.rotation.z += dangle * 0.15 + (smoothedVx * 0.005);
+            if (rightUL) rightUL.rotation.z -= dangle * 0.15 - (smoothedVx * 0.005);
+            if (leftLL) leftLL.rotation.x += Math.abs(dangle) * 0.18;
+            if (rightLL) rightLL.rotation.x += Math.abs(Math.cos(elapsedTotal * 3.2)) * 0.18;
+          }
         }
 
         currentVRM.update(delta);
@@ -862,6 +1052,7 @@
           currentVRM.scene.rotation.y += (targetRotationY - currentVRM.scene.rotation.y) * 0.15;
         }
 
+        const mouseActive = (Date.now() - lastMouseMoveTime) < 1200;
         if (!mouseActive && (Date.now() - lastMouseMoveTime > 2500)) {
           desiredLookAt.set(Math.sin(elapsedTotal * 0.45) * 0.6, 1.35 + Math.cos(elapsedTotal * 0.3) * 0.2, 10.0);
         }
@@ -903,6 +1094,10 @@
 
       renderer.render(scene, camera);
     }
+
+    window.stepFrame = (dt = 0.033) => {
+      animateCore(dt);
+    };
 
     requestAnimationFrame(animate);
 

@@ -28,6 +28,8 @@ states = [
     desktop_pet.DesktopRoboPet.STATE_WALK,
     desktop_pet.DesktopRoboPet.STATE_DANCE,
     desktop_pet.DesktopRoboPet.STATE_SIT,
+    desktop_pet.DesktopRoboPet.STATE_LAY,
+    desktop_pet.DesktopRoboPet.STATE_PERCH,
     desktop_pet.DesktopRoboPet.STATE_PICKED_UP,
     desktop_pet.DesktopRoboPet.STATE_CELEBRATE,
 ]
@@ -87,5 +89,19 @@ assert pet.eco_mode == False
 pet.toggle_eco_mode()
 assert pet.eco_mode == True
 print("   Gentle drop placement, snap_to_floor(), eco toggle & all Eco assets verified!")
+
+print("6. Testing Stella-Grade Motion: Velocity Tracking, Head Petting & Perching...")
+pet.move(250, 140)
+pet._physics_step()
+pet.move(290, 140)
+pet._physics_step()
+assert abs(pet.smooth_vx) > 0.0, "Velocity tracking smooth_vx should reflect horizontal movement!"
+
+pet.react_to_head_pet()
+assert any(w in pet.speech_bubble_lbl.text() for w in ["приятно", "ласку", "щёкотно", "лучший", "уютно"])
+
+assert hasattr(pet, "perch_on_active_window")
+assert hasattr(pet, "react_to_head_pet")
+print("   Stella-grade motion features (inertia, petting, perching) verified!")
 
 print("\n>>> ALL DESKTOP PET ENHANCED TESTS PASSED WITH 100% SUCCESS! <<<")
