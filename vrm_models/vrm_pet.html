@@ -64,8 +64,20 @@
     const camera = new THREE.PerspectiveCamera(33.0, window.innerWidth / window.innerHeight, 0.1, 20.0);
     const camStandPos = new THREE.Vector3(0.0, 0.74, 3.45);
     const camStandLook = new THREE.Vector3(0.0, 0.74, 0.0);
-    const camDrumPos = new THREE.Vector3(0.0, 0.78, 4.22);
-    const camDrumLook = new THREE.Vector3(0.02, 0.62, 0.12);
+    const camDrumPos = new THREE.Vector3(-0.075, 0.78, 4.35);
+    const camDrumLook = new THREE.Vector3(-0.075, 0.65, 0.12);
+
+    function updateDrumCameraFraming() {
+      // Drum kit spans x in [-0.96, +0.77] (centered at x=-0.075, half-span ~0.92m at z~0.4)
+      // Guarantee full cymbals, stands & kick drum clearance inside 86% of viewport width at any aspect!
+      const halfSpanNeeded = 0.92;
+      const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+      const minZ = 0.40 + halfSpanNeeded / (0.86 * tanHalfFov * Math.max(0.45, camera.aspect));
+      camDrumPos.set(-0.075, 0.78, Math.max(4.35, minZ));
+      camDrumLook.set(-0.075, 0.65, 0.12);
+    }
+    updateDrumCameraFraming();
+
     camera.position.copy(camStandPos);
     camera.lookAt(camStandLook);
 
@@ -796,6 +808,7 @@
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
+      updateDrumCameraFraming();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
   </script>

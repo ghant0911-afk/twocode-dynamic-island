@@ -556,6 +556,7 @@ class DesktopRoboPet(QWidget):
             self.state = self.STATE_PICKED_UP
             self.hurt_timer = 0
             self.squash_factor = 1.0
+            self._sync_vrm_state()
             self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
@@ -702,6 +703,7 @@ class DesktopRoboPet(QWidget):
                 self._sync_vrm_state()
             else:
                 self.vrm_view.hide()
+                self._update_stage_size()
         self.update()
 
     def open_vrm_viewer(self):
@@ -771,8 +773,10 @@ class DesktopRoboPet(QWidget):
                         self.hurt_timer = 0
                         self.squash_factor = 1.0
                         self._sync_vrm_state()
+                        self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                     if self.dragging:
                         self.move(event.globalPosition().toPoint() - self.drag_offset)
+                        self.subpixel_x = float(self.x())
                         return True
                 elif hasattr(self, 'vrm_view') and self.vrm_view:
                     import time
@@ -792,6 +796,7 @@ class DesktopRoboPet(QWidget):
                     else:
                         self.move(self.x(), self.floor_y)
                         self.state = self.STATE_IDLE
+                    self.subpixel_x = float(self.x())
                     self._sync_vrm_state()
                     return True
                 else:
@@ -804,7 +809,31 @@ class DesktopRoboPet(QWidget):
                 return True
         return super().eventFilter(watched, event)
 
+    def _update_stage_size(self):
+        """Expand pet stage width during VRM drumming so cymbals and stands are never clipped."""
+        want_wide = (
+            self.character == "shino"
+            and hasattr(self, 'vrm_view') and self.vrm_view is not None
+            and self.state == self.STATE_DANCE
+        )
+        target_w = int(self.pet_size * 1.50) if want_wide else self.pet_size
+        target_h = int(self.pet_size * 1.45)
+        if self.width() == target_w and self.height() == target_h:
+            return
+        center_x = self.x() + self.width() // 2
+        new_x = center_x - target_w // 2
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            new_x = max(avail.left() + 4, min(avail.right() - target_w - 4, new_x))
+        self.setFixedSize(target_w, target_h)
+        if hasattr(self, 'vrm_view') and self.vrm_view:
+            self.vrm_view.resize(target_w, target_h)
+        self.move(new_x, self.y())
+        self.subpixel_x = float(new_x)
+
     def _sync_vrm_state(self):
+        self._update_stage_size()
         if hasattr(self, 'vrm_view') and self.vrm_view and self.character == "shino":
             facing = getattr(self, 'facing_direction', 1)
             self.vrm_view.page().runJavaScript(f"window.setPetState && window.setPetState('{self.state}', {facing})")
