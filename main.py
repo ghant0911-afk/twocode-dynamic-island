@@ -2342,14 +2342,12 @@ class SettingsTabWidget(QWidget):
         self.ds_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.ds_key_input.setFixedSize(160, 24)
         self.ds_key_input.setStyleSheet("background: #18191E; color: #FFFFFF; font-size: 9px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.2); padding: 2px 6px;")
-        if os.path.exists(CONFIG_PATH):
-            try:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    c = json.load(f)
-                    if c.get("deepseek_api_key"):
-                        self.ds_key_input.setText(c["deepseek_api_key"])
-            except Exception:
-                pass
+        try:
+            ds_key = DeepSeekBrain.get().api_key
+            if ds_key:
+                self.ds_key_input.setText(ds_key)
+        except Exception:
+            pass
         self.ds_key_input.textChanged.connect(self.on_deepseek_key_changed)
         ds_row.addWidget(self.ds_key_input)
         layout.addLayout(ds_row)

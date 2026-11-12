@@ -19,9 +19,10 @@ import urllib.request
 import urllib.parse
 from typing import Dict, Any, Tuple, Optional
 
-# Load config for API key if present
+# Load config / gitignored secrets for API key if present
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
+SECRETS_PATH = os.path.join(APP_DIR, "secrets.json")
 NOTES_PATH = os.path.join(APP_DIR, "notes.txt")
 
 
@@ -56,29 +57,31 @@ class DeepSeekBrain:
         self._check_ollama()
 
     def _load_config(self):
-        if os.path.exists(CONFIG_PATH):
-            try:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-                    if cfg.get("deepseek_api_key"):
-                        self.api_key = cfg["deepseek_api_key"].strip()
-                    if cfg.get("deepseek_model"):
-                        self.model = cfg["deepseek_model"].strip()
-            except Exception:
-                pass
+        for path in (CONFIG_PATH, SECRETS_PATH):
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                        if cfg.get("deepseek_api_key"):
+                            self.api_key = cfg["deepseek_api_key"].strip()
+                        if cfg.get("deepseek_model"):
+                            self.model = cfg["deepseek_model"].strip()
+                except Exception:
+                    pass
 
     def save_api_key(self, key: str, model: str = "deepseek-chat"):
+        """Save API key exclusively to gitignored secrets.json so config.json stays clean."""
         self.api_key = key.strip()
         self.model = model.strip()
         try:
-            cfg = {}
-            if os.path.exists(CONFIG_PATH):
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-            cfg["deepseek_api_key"] = self.api_key
-            cfg["deepseek_model"] = self.model
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            sec = {}
+            if os.path.exists(SECRETS_PATH):
+                with open(SECRETS_PATH, "r", encoding="utf-8") as f:
+                    sec = json.load(f)
+            sec["deepseek_api_key"] = self.api_key
+            sec["deepseek_model"] = self.model
+            with open(SECRETS_PATH, "w", encoding="utf-8") as f:
+                json.dump(sec, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 

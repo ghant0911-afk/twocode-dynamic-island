@@ -18,3 +18,7 @@ notes.txt
 
 # Local large AI models
 voice_cache/silero_models/
+
+# API keys & local secrets
+secrets.json
+.env
