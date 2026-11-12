@@ -39,6 +39,7 @@ class DeepSeekBrain:
         self.model = "deepseek-chat" # or deepseek-reasoner
         self.ollama_url = "http://127.0.0.1:11434"
         self.has_ollama = False
+        self.recent_comments = []
         self.conversation_history = [
             {
                 "role": "system",
@@ -257,7 +258,7 @@ class DeepSeekBrain:
         url = f"{self.ollama_url}/api/generate"
         data = {
             "model": "deepseek-r1:latest",
-            "prompt": f"Система: Ты умный робот TwoCode в красном худи. Отвечай кратко в 1-2 предложения по-русски.\nВопрос: {prompt}\nОтвет:",
+            "prompt": f"Система: Ты — Астра (Astra), живой 3D-компаньон рабочего стола. Отвечай живо и кратко (1-2 предложения по-русски).\nЗапрос: {prompt}\nОтвет:",
             "stream": False
         }
         try:
@@ -271,75 +272,194 @@ class DeepSeekBrain:
     # -------------------------------------------------------------------------
     # Streamer Commentary Engine (No repetitive loops!)
     # -------------------------------------------------------------------------
+    def _remember_comment(self, text: str) -> str:
+        clean = (text or "").replace('"', '').strip()
+        if clean:
+            self.recent_comments.append(clean)
+            if len(self.recent_comments) > 6:
+                self.recent_comments.pop(0)
+        return clean
+
+    def _pick_fresh(self, candidates: list[str]) -> str:
+        fresh = [c for c in candidates if c not in self.recent_comments]
+        return random.choice(fresh if fresh else candidates)
+
     def generate_streamer_comment(self, game_info: Dict[str, str], metrics: Dict[str, Any]) -> Tuple[str, str]:
         """
-        Generates lively, unscripted streamer commentary:
-        Analyzes game title, motion, health danger (red ratio), and creates dynamic commentary.
+        Generates live, screen-grounded commentary from real frame metrics,
+        active window/app title, audio loudness, and Windows Neural OCR HUD text.
         """
         gname = game_info.get("name", "игре")
-        gtype = game_info.get("type", "game")
-        motion = metrics.get("motion", 0)
-        red_ratio = metrics.get("red_ratio", 1.0)
-        brightness = metrics.get("brightness", 128)
+        gtype = game_info.get("type", "desktop")
+        wtitle = (game_info.get("title") or "").strip()
+        motion = float(metrics.get("motion", 0.0))
+        red_ratio = float(metrics.get("red_ratio", 1.0))
+        brightness = float(metrics.get("brightness", 128.0))
+        scene_cut = bool(metrics.get("scene_cut", False))
+        audio_peak = float(metrics.get("audio_peak", 0.0))
+        hud_events = list(metrics.get("hud_events") or [])
+        hp_val = metrics.get("hp_val")
+        ocr_snippet = (metrics.get("ocr_snippet") or "").strip()
+        ocr_text = (metrics.get("ocr_text") or ocr_snippet).strip()
 
-        # Context prompt for DeepSeek if API key available
-        if self.api_key:
+        # Infer visual emotion honestly from live telemetry & HUD events
+        def _infer_emotion() -> str:
+            if "death" in hud_events or "defeat" in hud_events or "low_hp" in hud_events or red_ratio > 1.38:
+                return "shocked"
+            if "victory" in hud_events or "boss_or_level" in hud_events:
+                return "star"
+            if "error" in hud_events or ocr_snippet:
+                return "curious"
+            if motion > 38 or scene_cut or audio_peak > 0.65:
+                return "gaming"
+            if brightness < 42:
+                return "curious"
+            return "happy"
+
+        # 1. Live LLM commentary (DeepSeek API or local Ollama) grounded in REAL screen data
+        if self.api_key or self.has_ollama:
+            facts = [f"Окно/игра: '{gname}' (тип: {gtype})"]
+            if wtitle and wtitle != gname:
+                facts.append(f"Заголовок: '{wtitle[:80]}'")
+            facts.append(f"Кадр: движение={motion:.0f}%, красный={red_ratio:.2f}, яркость={brightness:.0f}/255, смена_сцены={scene_cut}, звук={audio_peak:.2f}")
+            if hud_events:
+                facts.append(f"События на HUD: {', '.join(hud_events)}" + (f" (HP={hp_val})" if hp_val else ""))
+            if ocr_text:
+                facts.append(f"Текст с экрана (OCR): «{ocr_text[:260]}»")
+            avoid = f" Не повторяй прошлые фразы: {self.recent_comments[-3:]}" if self.recent_comments else ""
+
             context_prompt = (
-                f"Стример играет в игру '{gname}'. "
-                f"Ситуация: динамика движения {motion}%, индикатор урона/хп {red_ratio:.1f}, яркость экрана {brightness:.0f}. "
-                "Выдай одну короткую, смешную или эмоциональную стримерскую реплику (1 предложение, до 12 слов) в стиле стримера с Твича."
+                "Ты смотришь на реальный экран пользователя прямо сейчас.\n"
+                + "\n".join(facts)
+                + "\nВыдай одну короткую (1 предложение, 6-14 слов) живую, естественную реакцию по-русски именно на то, что видно на экране или происходит в игре/программе. "
+                "Без выдумок того, чего нет в фактах." + avoid
             )
-            reply = self._query_deepseek_api(context_prompt)
+            reply = self._query_deepseek_api(context_prompt) if self.api_key else self._query_ollama(context_prompt)
             if reply:
-                # Determine emotion
-                emo = "gaming"
-                if red_ratio > 1.3:
-                    emo = "shocked"
-                elif motion > 40:
-                    emo = "star"
-                elif brightness < 40:
-                    emo = "curious"
-                return reply.replace('"', '').strip(), emo
+                return self._remember_comment(reply), _infer_emotion()
 
-        # Dynamic algorithmic generator with combinatorial variety (never loops!)
-        verbs_danger = [
-            "Хилиться надо срочно", "Живи, живи, пожалуйста", "У нас критический урон",
-            "Так, сердце колотится", "Откуда прилетело", "Бро, уходи в укрытие",
-            "Еле держимся", "Где аптечка, спасите"
-        ]
-        verbs_action = [
-            "Вот это раздача пошла", "Какой тайминг шикарный", "Смотри какой мув выдал",
-            "Чат, вы видели этот прострел", "Чисто на классе разыграно", "Жёсткий экшен начался",
-            "Руки не дрожат, тащим раунд", "Какая скорость реакции, хорош"
-        ]
-        verbs_stealth = [
-            "Так, тут темновато, крадёмся тихо", "Слышишь шаги? Кто-то рядом ходит",
-            "Атмосфера прямо хоррор какой-то", "Фонарик бы включить, ни черта не видно",
-            "Затаились в углу и не дышим"
-        ]
-        verbs_chill = [
-            f"Кайфуем и фармим в {gname}", f"Чат, как вам атмосфера в {gname}?",
-            "Спокойный темп, играем в удовольствие", "План надёжный как швейцарские часы",
-            f"Красивая графика тут, согласитесь?", "На чилле проходим следующий этап"
-        ]
+        # 2. Honest grounded synthesizer (no LLM key): reacts directly to live HUD OCR & frame telemetry
+        if "error" in hud_events:
+            snippet_hint = f" («{ocr_snippet[:45]}»)" if ocr_snippet else ""
+            cand = [
+                f"Ого, на экране в {gname} вылезла ошибка{snippet_hint} — давай разберёмся!",
+                f"Вижу ошибку в {gname}{snippet_hint}, проверяй логи или строку выше!",
+            ]
+            return self._remember_comment(self._pick_fresh(cand)), "curious"
 
-        endings = [
-            "Давай дальше!", "Красиво!", "Тащим!", "Чат в восторге!", "Просто пушка!",
-            "Смотрим дальше.", "Вперёд к победе!", "Это было мощно!"
-        ]
+        if "death" in hud_events:
+            cand = [
+                f"Эх, похоже в {gname} не повезло — не тильтуй, следующая точно за тобой!",
+                f"Экран поражения в {gname}... Перезагружаемся и мстим!",
+            ]
+            return self._remember_comment(self._pick_fresh(cand)), "shocked"
 
-        if red_ratio > 1.4:
-            txt = f"{random.choice(verbs_danger)}, {random.choice(endings).lower()}"
-            return txt, "shocked"
-        elif motion > 40:
-            txt = f"{random.choice(verbs_action)}! {random.choice(endings)}"
-            return txt, "gaming"
-        elif brightness < 40:
-            txt = f"{random.choice(verbs_stealth)}..."
-            return txt, "curious"
-        else:
-            txt = f"{random.choice(verbs_chill)}. {random.choice(endings)}"
-            return txt, "happy"
+        if "victory" in hud_events:
+            cand = [
+                f"Есть победа в {gname}! Красиво дожали до конца!",
+                f"GG! Вижу победу на экране в {gname}, отличная катка!",
+            ]
+            return self._remember_comment(self._pick_fresh(cand)), "star"
+
+        if "defeat" in hud_events:
+            return self._remember_comment(self._pick_fresh([
+                f"Раунд или матч в {gname} не зашёл — ничего, отыграемся!",
+                f"Вижу поражение в {gname}, но опыт важнее — го реванш!",
+            ])), "sad"
+
+        if "low_hp" in hud_events:
+            hp_str = f"{hp_val} HP" if hp_val is not None else "критически мало HP"
+            return self._remember_comment(self._pick_fresh([
+                f"Осторожнее в {gname}, осталось {hp_str} — срочно хилься!",
+                f"Вижу на экране {hp_str}! Уходи в укрытие, не рискуй!",
+            ])), "shocked"
+
+        if "bomb" in hud_events:
+            return self._remember_comment(self._pick_fresh([
+                f"Бомба уже тикает в {gname}! Держим позиции и слушаем шаги!",
+                f"Вижу постановку на пленте в {gname} — сейчас будет горячий клатч!",
+            ])), "gaming"
+
+        if "boss_or_level" in hud_events:
+            return self._remember_comment(self._pick_fresh([
+                f"Опа, на экране в {gname} новый уровень или босс — готовься!",
+                f"Вижу босса / апгрейд в {gname}, не зевай и следи за таймингами!",
+            ])), "star"
+
+        # Real visual / audio spikes observed in frame
+        if red_ratio > 1.38:
+            return self._remember_comment(self._pick_fresh([
+                f"Красный экран в {gname} — похоже прилетел плотный урон!",
+                f"Ой-ой, всё замигало красным в {gname}, отступай!",
+            ])), "shocked"
+
+        if scene_cut:
+            hint = f" («{ocr_snippet[:40]}»)" if ocr_snippet else ""
+            return self._remember_comment(self._pick_fresh([
+                f"Резкая смена сцены в {gname}{hint} — что там дальше началось?",
+                f"Ого, кадр резко переключился{hint}! Погнали смотреть.",
+            ])), "surprised"
+
+        if motion > 38.0 or audio_peak > 0.68:
+            return self._remember_comment(self._pick_fresh([
+                f"В {gname} сейчас мощная динамика ({motion:.0f}% движения в кадре)!",
+                f"Ого, в {gname} сейчас шумно и жарко — тащи на реакции!",
+            ])), "gaming"
+
+        if brightness < 42.0:
+            return self._remember_comment(self._pick_fresh([
+                f"В {gname} сейчас очень тёмная сцена (яркость {brightness:.0f}), прям хоррор-вайб!",
+                f"Темно как в подземелье в {gname} — будь начеку!",
+            ])), "curious"
+
+        # Grounded context remarks citing actual window title / OCR snippet read from screen
+        if ocr_snippet and len(ocr_snippet) >= 8:
+            short_snip = ocr_snippet[:52].rstrip()
+            return self._remember_comment(self._pick_fresh([
+                f"Читаю с экрана ({gname}): «{short_snip}» — интересно!",
+                f"Смотрю на «{short_snip}» в {gname}, хороший темп!",
+            ])), "curious"
+
+        if gtype == "poe":
+            return self._remember_comment(self._pick_fresh([
+                "Path of Exile на экране! Не забудь забрать орбы и чекнуть резисты.",
+                "Чистим карту в PoE — пусть упадёт заветный дивайн!",
+            ])), "gaming"
+        if gtype == "cs2":
+            return self._remember_comment(self._pick_fresh([
+                "Counter-Strike 2! Держи прицел на уровне головы и чекай углы.",
+                "Хороший темп в CS2 — ждём красивый клатч или эйс!",
+            ])), "gaming"
+        if gtype == "dota2":
+            return self._remember_comment(self._pick_fresh([
+                "Dota 2! Поглядывай на миникарту, чтобы мидер не гангнул.",
+                "Фармим на слоты в Dota 2 — варды на базе не забывай!",
+            ])), "gaming"
+        if gtype == "minecraft":
+            return self._remember_comment(self._pick_fresh([
+                "Уютный Minecraft на экране — только не копай прямо под себя!",
+                "Строимся в Minecraft! Не забудь факелы перед спуском в пещеру.",
+            ])), "happy"
+        if gtype == "cyberpunk":
+            return self._remember_comment(self._pick_fresh([
+                "Найт-Сити сияет! Сандевистан наготове, разбираемся с корпорантами.",
+                "Атмосфера Cyberpunk 2077 на экране — какой же стильный город!",
+            ])), "cool"
+        if gtype == "video":
+            return self._remember_comment(self._pick_fresh([
+                f"Смотрим «{gname}»? Я тоже заглянула на экран!",
+                f"О, ролик «{gname}» — интересный выбор, можно и под барабаны!",
+            ])), "happy"
+        if gtype == "ide":
+            return self._remember_comment(self._pick_fresh([
+                f"Кодим в {gname}? Продуктивный настрой — главное без багов!",
+                f"Вижу открытый проект «{gname}» — затащим задачу чисто!",
+            ])), "relaxed"
+
+        return self._remember_comment(self._pick_fresh([
+            f"Открыто окно «{gname}» (яркость {brightness:.0f}) — всё под контролем!",
+            f"Слежу за «{gname}» вместе с тобой — зови, если понадоблюсь!",
+        ])), "happy"
 
     # -------------------------------------------------------------------------
     # Autonomous Situational Fallback Companion
@@ -347,39 +467,34 @@ class DeepSeekBrain:
     def _generate_autonomous_response(self, query: str) -> str:
         q = query.lower().strip()
 
-        # Identity
         if any(k in q for k in ["кто ты", "как тебя зовут", "что ты такое"]):
-            return "Я Робо — твой живой маскот Dynamic Island! Хожу по рабочему столу в красном худи и помогаю в делах."
+            return "Я Астра — твой живой 3D-компаньон Dynamic Island! Живу на рабочем столе и помогаю в делах."
 
         if any(k in q for k in ["привет", "хай", "здравствуй", "салют"]):
-            greetings = [
-                "Привет-привет! Рад тебя видеть! Чем займёмся?",
-                "Салют! Я на посту, гуляю по панели задач в свежем красном худи!",
-                "Привет! Музыку послушаем или поиграем?"
-            ]
-            return random.choice(greetings)
+            return random.choice([
+                "Привет-привет! Рада тебя видеть! Чем займёмся?",
+                "Салют! Я рядом на рабочем столе, готова помочь или поболтать!",
+                "Привет! Послушаем музыку с барабанами или пообщаемся?"
+            ])
 
         if any(k in q for k in ["как дела", "как ты", "что делаешь"]):
-            statuses = [
-                "Отлично! Бегаю по экрану, слушаю Баю и готов выполнять твои команды.",
-                "Супер! Настроение боевое, худи сидит идеально, система работает как часы.",
-                "Всё чики-пуки! Разминаю механические суставы и слежу за порядком на рабочем столе."
-            ]
-            return random.choice(statuses)
+            return random.choice([
+                "Отлично! Прогуливаюсь по экрану и готова выполнять твои команды.",
+                "Супер! Всё работает плавно, настроение боевое.",
+                "Всё отлично! Слежу за порядком на рабочем столе."
+            ])
 
         if any(k in q for k in ["погода"]):
-            return "За окном отличная погода для кодинга и каток! А у нас на рабочем столе всегда тёплый ламповый вайб."
+            return "Отличная погода для кодинга и каток! А у нас на рабочем столе всегда тёплый вайб."
 
         if any(k in q for k in ["шутк", "анекдот", "рассмеши"]):
-            jokes = [
+            return random.choice([
                 "Программист ставит на тумбочку два стакана: один с водой на случай жажды, а второй пустой — на случай если пить не захочется!",
                 "Искусственный интеллект никогда не победит лень естественного интеллекта!",
                 "Есть 10 типов людей: те, кто понимает двоичную систему счисления, и те, кто не понимает."
-            ]
-            return random.choice(jokes)
+            ])
 
         if any(k in q for k in ["музык", "трек", "песн"]):
-            return "Врубай свой любимый трек! Как только он заиграет, я сразу надену наушники и затанцую!"
+            return "Врубай свой любимый трек! Как только он заиграет, я сразу надену наушники и сяду за барабаны!"
 
-        # Default intelligent response
-        return f"Понял тебя: «{query}». Я запомнил это! Если хочешь подключить полноценный DeepSeek-V3 или R1, просто укажи свой API-ключ в настройках."
+        return f"Поняла тебя: «{query}». Запомнила! Для полных нейро-диалогов добавь свой API-ключ DeepSeek в настройках."
