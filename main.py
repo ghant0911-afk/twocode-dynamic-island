@@ -3289,6 +3289,8 @@ class TwoCodeIsland(QWidget):
             if hasattr(self, 'robo_tab') and hasattr(self.robo_tab, 'robo'):
                 self.robo_tab.robo.set_mode("eating", duration_ms=2800)
                 self.robo_tab.speech_bubble.setText(f"😋 Ням! Скушал {fname}! Файл сохранён на полку!")
+            if getattr(self, "desktop_pet", None) and self.desktop_pet.isVisible():
+                self.desktop_pet.trigger_eat(f"😋 Ням! Скушал {fname}!")
             event.acceptProposedAction()
 
     def get_active_screen(self):
@@ -3525,6 +3527,8 @@ class TwoCodeIsland(QWidget):
         if hasattr(self, 'robo_tab') and hasattr(self.robo_tab, 'robo'):
             self.robo_tab.robo.set_mode("eating", duration_ms=2800)
             self.robo_tab.speech_bubble.setText(f"😋 Ням! Скушал {fname}! Файл сохранён на полку!")
+        if getattr(self, "desktop_pet", None) and self.desktop_pet.isVisible():
+            self.desktop_pet.trigger_eat(f"😋 Ням! Скушал {fname}!")
         self.expand()
         self.dock.select_tab(1)
 

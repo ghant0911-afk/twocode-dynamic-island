@@ -22,3 +22,6 @@ voice_cache/silero_models/
 # API keys & local secrets
 secrets.json
 .env
+
+# Reverse-engineered Astra archives and cloned repos
+astra_deconstructed/

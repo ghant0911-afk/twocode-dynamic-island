@@ -21,6 +21,7 @@ import sys
 import math
 import random
 import threading
+import datetime
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QMenu, QLabel
@@ -38,7 +39,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import (
     QPainter, QColor, QPen, QBrush, QPainterPath, QLinearGradient, QRadialGradient,
-    QCursor, QAction
+    QCursor, QAction, QFont
 )
 
 # -------------------------------------------------------------------------
@@ -127,6 +128,14 @@ def draw_vector_double_note(p: QPainter, x: float, y: float, size: float, color:
     p.drawLine(QPointF(x + size * 0.4, y - size * 1.8), QPointF(x + size * 1.7, y - size * 2.05))
     p.restore()
 
+def draw_vector_zzz(p: QPainter, x: float, y: float, size: float, text: str, color: QColor):
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setFont(QFont("Segoe UI", max(8, int(size)), QFont.Weight.Bold))
+    p.setPen(color)
+    p.drawText(QPointF(x, y), text)
+    p.restore()
+
 # -------------------------------------------------------------------------
 # Desktop Robo Pet Widget
 # -------------------------------------------------------------------------
@@ -151,6 +160,11 @@ class DesktopRoboPet(QWidget):
     STATE_DANCE = "dance"
     STATE_SIT = "sit"
     STATE_LAY = "lay"
+    STATE_SLEEP = "sleep"
+    STATE_THINK = "think"
+    STATE_CHEER = "cheer"
+    STATE_EAT = "eat"
+    STATE_SURPRISED = "surprised"
     STATE_PERCH = "perch"
     STATE_PICKED_UP = "picked_up"
     STATE_CELEBRATE = "celebrate"
@@ -352,7 +366,7 @@ class DesktopRoboPet(QWidget):
         self._sync_vrm_state()
 
     def _ai_decide_next_action(self):
-        if self.state in [self.STATE_PICKED_UP, self.STATE_CELEBRATE]:
+        if self.state in [self.STATE_PICKED_UP, self.STATE_CELEBRATE, self.STATE_CHEER, self.STATE_EAT]:
             return
 
         # If music is playing, stay drumming on rock drum kit continuously without interruption
@@ -363,21 +377,33 @@ class DesktopRoboPet(QWidget):
             self.ai_timer.setInterval(8000)
             return
 
-        # Regular state choices with rich varied behaviors (walk, idle, sit, lay)
+        # Regular state choices with rich varied behaviors (walk, idle, sit, lay, think, sleep)
+        now_hour = datetime.datetime.now().hour
+        is_night = (now_hour >= 23 or now_hour < 7)
+
         r = random.random()
-        if r < 0.35:
+        if is_night and r < 0.35:
+            self.state = self.STATE_SLEEP
+            self.ai_timer.setInterval(random.randint(8000, 15000))
+        elif r < 0.28:
             self.state = self.STATE_WALK
             self.facing_direction = random.choice([-1, 1])
             self.ai_timer.setInterval(random.randint(4000, 7000))
-        elif r < 0.70:
+        elif r < 0.52:
             self.state = self.STATE_IDLE
             self.ai_timer.setInterval(random.randint(4500, 8500))
-        elif r < 0.88:
+        elif r < 0.68:
             self.state = self.STATE_SIT
             self.ai_timer.setInterval(random.randint(5000, 9000))
-        else:
+        elif r < 0.80:
+            self.state = self.STATE_THINK
+            self.ai_timer.setInterval(random.randint(4000, 7500))
+        elif r < 0.92:
             self.state = self.STATE_LAY
             self.ai_timer.setInterval(random.randint(4000, 8000))
+        else:
+            self.state = self.STATE_SLEEP
+            self.ai_timer.setInterval(random.randint(6000, 12000))
         self._sync_vrm_state()
 
     def register_own_hwnd(self, hwnd: int):
@@ -563,19 +589,32 @@ class DesktopRoboPet(QWidget):
                         f"window.setBeatPulse && window.setBeatPulse({peak:.3f}, {speed_scale:.3f}, {str(beat_hit).lower()})"
                     )
 
-        elif self.state == self.STATE_CELEBRATE:
+        elif self.state in [self.STATE_CELEBRATE, self.STATE_CHEER]:
             # Jumping celebration
             if self.anim_tick % 15 == 0:
                 self.spawn_hearts(2)
             if self.anim_tick > 80:
                 self.state = self.STATE_IDLE
 
+        elif self.state == self.STATE_SLEEP:
+            if self.anim_tick % 45 == 0:
+                self.spawn_zzz()
+
+        elif self.state == self.STATE_EAT:
+            if self.anim_tick % 30 == 0:
+                self.spawn_hearts(1)
+
         if getattr(self, 'character', 'shino') == 'shino' and getattr(self, 'vrm_view', None):
             # WebEngine renders 3D asynchronously; only repaint Qt overlay when 2D particles exist
             need_paint = len(self.particles) > 0
         else:
             need_paint = (
-                self.state in [self.STATE_WALK, self.STATE_DANCE, self.STATE_PICKED_UP, self.STATE_CELEBRATE, self.STATE_SIT, self.STATE_LAY, self.STATE_PERCH]
+                self.state in [
+                    self.STATE_WALK, self.STATE_DANCE, self.STATE_PICKED_UP,
+                    self.STATE_CELEBRATE, self.STATE_CHEER, self.STATE_SIT,
+                    self.STATE_LAY, self.STATE_SLEEP, self.STATE_THINK,
+                    self.STATE_EAT, self.STATE_SURPRISED, self.STATE_PERCH
+                ]
                 or self.is_blinking
                 or len(self.particles) > 0
             )
@@ -630,6 +669,42 @@ class DesktopRoboPet(QWidget):
                 "r": random.uniform(4.0, 7.0),
                 "color": QColor(255, 60, 130)
             })
+
+    def spawn_zzz(self):
+        cx = self.width() / 2.0 + (16 if self.facing_direction == 1 else -16)
+        cy = self.height() / 2.0 - 24
+        self.particles.append({
+            "type": "zzz",
+            "text": random.choice(["z", "Z", "Zz"]),
+            "x": cx + random.uniform(-4, 4),
+            "y": cy,
+            "vx": random.uniform(0.3, 0.7) * (1 if self.facing_direction == 1 else -1),
+            "vy": random.uniform(-1.0, -0.5),
+            "alpha": 240,
+            "size": random.uniform(9.0, 13.0),
+            "color": QColor('#A78BFA')
+        })
+
+    def trigger_eat(self, text="😋 Ням! Вкусно!"):
+        self.state = self.STATE_EAT
+        self._sync_vrm_state()
+        self.spawn_hearts(2)
+        if hasattr(self, 'speech_bubble'):
+            self.speech_bubble.setText(text)
+            self.speech_bubble.show()
+            QTimer.singleShot(3500, self.speech_bubble.hide)
+        QTimer.singleShot(4200, lambda: self._set_manual_state(self.STATE_IDLE) if self.state == self.STATE_EAT else None)
+
+    def trigger_cheer(self):
+        self.state = self.STATE_CHEER
+        self._sync_vrm_state()
+        self.spawn_hearts(4)
+        QTimer.singleShot(4000, lambda: self._set_manual_state(self.STATE_IDLE) if self.state == self.STATE_CHEER else None)
+
+    def trigger_think(self):
+        self.state = self.STATE_THINK
+        self._sync_vrm_state()
+        QTimer.singleShot(5000, lambda: self._set_manual_state(self.STATE_IDLE) if self.state == self.STATE_THINK else None)
 
     def _update_particles(self):
         for p in self.particles:
@@ -753,6 +828,26 @@ class DesktopRoboPet(QWidget):
         act_lay = QAction("🛏️ Прилечь отдохнуть", self)
         act_lay.triggered.connect(lambda: self._set_manual_state(self.STATE_LAY))
         menu.addAction(act_lay)
+
+        # Sleep Action
+        act_sleep = QAction("😴 Заснуть (Zzz)", self)
+        act_sleep.triggered.connect(lambda: self._set_manual_state(self.STATE_SLEEP))
+        menu.addAction(act_sleep)
+
+        # Think Action
+        act_think = QAction("🤔 Задуматься", self)
+        act_think.triggered.connect(self.trigger_think)
+        menu.addAction(act_think)
+
+        # Cheer / Applaud Action
+        act_cheer = QAction("🙌 Аплодисменты / Ликование", self)
+        act_cheer.triggered.connect(self.trigger_cheer)
+        menu.addAction(act_cheer)
+
+        # Eat Snack Action
+        act_eat = QAction("🍙 Перекусить", self)
+        act_eat.triggered.connect(lambda: self.trigger_eat("🍙 Ням-ням! Очень вкусно!"))
+        menu.addAction(act_eat)
 
         # Perch on active window
         act_perch = QAction("🧗 Взобраться на активное окно", self)
@@ -1147,6 +1242,10 @@ class DesktopRoboPet(QWidget):
                     col = QColor(pt["color"])
                     col.setAlpha(pt["alpha"])
                     draw_vector_heart(p, pt["x"], pt["y"], pt["r"], col)
+                elif pt["type"] == "zzz":
+                    col = QColor(pt["color"])
+                    col.setAlpha(pt["alpha"])
+                    draw_vector_zzz(p, pt["x"], pt["y"], pt.get("size", 11.0), pt.get("text", "Zzz"), col)
             return
 
         if hasattr(self, 'vrm_view') and self.vrm_view and self.vrm_view.isVisible():
@@ -1692,3 +1791,7 @@ class DesktopRoboPet(QWidget):
                 col = QColor(pt["color"])
                 col.setAlpha(pt["alpha"])
                 draw_vector_heart(p, pt["x"], pt["y"], pt["r"] * s, col)
+            elif pt["type"] == "zzz":
+                col = QColor(pt["color"])
+                col.setAlpha(pt["alpha"])
+                draw_vector_zzz(p, pt["x"], pt["y"], pt.get("size", 11.0) * s, pt.get("text", "Zzz"), col)

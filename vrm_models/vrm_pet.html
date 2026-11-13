@@ -396,8 +396,13 @@
       picked_up_alt: 0.85,
       sit: 0.75,
       lay: 0.85,
+      sleep: 0.70,
+      think: 0.80,
+      eat: 0.85,
       wave: 0.95,
       celebrate: 0.90,
+      cheer: 0.90,
+      surprised: 0.95,
       talk: 0.85,
       dance_1: 0.88,
       dance_2: 0.88,
@@ -421,6 +426,11 @@
       picked_up_alt: 'animations/hang.vrma',
       sit: 'animations/sit.vrma',
       lay: 'animations/lay.vrma',
+      sleep: 'animations/lay.vrma',
+      think: 'animations/idle_look.vrma',
+      cheer: 'animations/joyful_jump.vrma',
+      eat: 'animations/idle_loop.vrma',
+      surprised: 'animations/joyful_jump.vrma',
       wave: 'animations/wave_fast.vrma',
       celebrate: 'animations/joyful_jump.vrma',
       talk: 'animations/talking.vrma',
@@ -460,7 +470,7 @@
           }
           const avgX = sumX / count, avgY = sumY / count, avgZ = sumZ / count;
           const isSit = animKey === 'sit';
-          const isLay = animKey === 'lay';
+          const isLay = (animKey === 'lay' || animKey === 'sleep');
           let targetY = isLay ? restY * 0.18 : (isSit ? restY * 0.62 : restY);
           for (let i = 0; i < count; i++) {
             vals[i * 3 + 0] = (vals[i * 3 + 0] - avgX) * 0.45;
@@ -677,7 +687,6 @@
         setExpressionSafe('surprised', 1.0);
         const pickKey = (Math.random() < 0.4 && actions['picked_up_alt']) ? 'picked_up_alt' : 'picked_up';
         playAction(pickKey, 0.35);
-        // Lazy-cache alternate hang pose cleanly for next pickup
         if (!actions['picked_up_alt'] && currentVRM) ensureActionLoaded('picked_up_alt', currentVRM).catch(() => {});
       } else if (currentState === 'sit') {
         setExpressionSafe('relaxed', 1.0);
@@ -686,15 +695,29 @@
         setExpressionSafe('relaxed', 0.95);
         setExpressionSafe('happy', 0.20);
         playAction('lay', 0.55);
+      } else if (currentState === 'sleep') {
+        setExpressionSafe('relaxed', 1.0);
+        setExpressionSafe('happy', 0.15);
+        playAction('sleep', 0.60);
+      } else if (currentState === 'think') {
+        setExpressionSafe('relaxed', 0.85);
+        setExpressionSafe('surprised', 0.25);
+        playAction('think', 0.40);
+      } else if (currentState === 'cheer' || currentState === 'celebrate') {
+        setExpressionSafe('happy', 1.0);
+        playAction('celebrate', 0.30);
+      } else if (currentState === 'surprised') {
+        setExpressionSafe('surprised', 1.0);
+        playAction('surprised', 0.20);
+      } else if (currentState === 'eat') {
+        setExpressionSafe('happy', 0.95);
+        playAction('eat', 0.35);
       } else if (currentState === 'walk') {
         setExpressionSafe('relaxed', 0.3);
         playAction('walk', 0.35);
       } else if (currentState === 'wave') {
         setExpressionSafe('happy', 1.0);
         playAction('wave', 0.30);
-      } else if (currentState === 'celebrate') {
-        setExpressionSafe('happy', 1.0);
-        playAction('celebrate', 0.30);
       } else {
         setExpressionSafe('relaxed', 0.35);
         setExpressionSafe('happy', 0.15);
@@ -876,7 +899,7 @@
       const rotMoving = currentVRM && Math.abs(targetRotationY - currentVRM.scene.rotation.y) > 0.005;
       const mouseActive = (Date.now() - lastMouseMoveTime) < 1200;
       const velMoving = (Math.abs(smoothedVx) > 0.05 || Math.abs(smoothedVy) > 0.05);
-      const isActive = isDrummingActive || isTalking || isBlinking || camMoving || rotMoving || mouseActive || velMoving || isPettingActive || (currentState !== 'idle' && currentState !== 'sit' && currentState !== 'lay');
+      const isActive = isDrummingActive || isTalking || isBlinking || camMoving || rotMoving || mouseActive || velMoving || isPettingActive || (currentState !== 'idle' && currentState !== 'sit' && currentState !== 'lay' && currentState !== 'sleep');
 
       // Skip strictly every 2nd VSYNC tick (exact 30.0 FPS flat!) in calm idle when Eco Mode is active
       if (ecoMode && !isActive) {
@@ -1015,14 +1038,17 @@
             }
           }
 
-          // 4. Procedural Secondary Dynamics: Organic Breathing
-          const breath = Math.sin(elapsedTotal * 1.57);
+          // 4. Procedural Secondary Dynamics: Organic Breathing (slow deep rhythm during sleep)
+          const isSleeping = currentState === 'sleep';
+          const breathSpeed = isSleeping ? 0.75 : 1.57;
+          const breathAmp = isSleeping ? 0.026 : 0.015;
+          const breath = Math.sin(elapsedTotal * breathSpeed);
           const chestNode = currentVRM.humanoid?.getNormalizedBoneNode('chest');
           const spineNode = currentVRM.humanoid?.getNormalizedBoneNode('spine');
           if (chestNode) {
-            chestNode.scale.set(1.0 + breath * 0.015, 1.0 + breath * 0.022, 1.0 + breath * 0.015);
+            chestNode.scale.set(1.0 + breath * breathAmp, 1.0 + breath * (breathAmp * 1.5), 1.0 + breath * breathAmp);
           }
-          if (spineNode && currentState !== 'lay') {
+          if (spineNode && currentState !== 'lay' && !isSleeping) {
             spineNode.rotation.x += breath * 0.010;
           }
 
@@ -1034,6 +1060,32 @@
               hips.position.x += shift * 0.014;
               hips.rotation.z += shift * 0.012;
             }
+          }
+
+          // 5b. Procedural Thinking Chin Gesture
+          if (currentState === 'think') {
+            const rHand = currentVRM.humanoid?.getNormalizedBoneNode('rightHand');
+            const rArm = currentVRM.humanoid?.getNormalizedBoneNode('rightUpperArm');
+            const rForeArm = currentVRM.humanoid?.getNormalizedBoneNode('rightLowerArm');
+            const head = currentVRM.humanoid?.getNormalizedBoneNode('head');
+            if (rArm) {
+              rArm.rotation.z = -0.55;
+              rArm.rotation.x = -0.65;
+            }
+            if (rForeArm) {
+              rForeArm.rotation.z = 0.85;
+            }
+            if (head) {
+              head.rotation.z = 0.12;
+              head.rotation.x = -0.15;
+            }
+          }
+
+          // 5c. Procedural Chewing in Eat State
+          if (currentState === 'eat') {
+            const chew = (Math.sin(elapsedTotal * 6.5) + 1.0) * 0.5;
+            setExpressionSafe('aa', chew * 0.42);
+            setExpressionSafe('happy', 0.95);
           }
 
           // 6. Playful Sitting Leg Swings

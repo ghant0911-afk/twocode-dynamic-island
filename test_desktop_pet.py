@@ -29,6 +29,11 @@ states = [
     desktop_pet.DesktopRoboPet.STATE_DANCE,
     desktop_pet.DesktopRoboPet.STATE_SIT,
     desktop_pet.DesktopRoboPet.STATE_LAY,
+    desktop_pet.DesktopRoboPet.STATE_SLEEP,
+    desktop_pet.DesktopRoboPet.STATE_THINK,
+    desktop_pet.DesktopRoboPet.STATE_CHEER,
+    desktop_pet.DesktopRoboPet.STATE_EAT,
+    desktop_pet.DesktopRoboPet.STATE_SURPRISED,
     desktop_pet.DesktopRoboPet.STATE_PERCH,
     desktop_pet.DesktopRoboPet.STATE_PICKED_UP,
     desktop_pet.DesktopRoboPet.STATE_CELEBRATE,
@@ -103,5 +108,22 @@ assert any(w in pet.speech_bubble_lbl.text() for w in ["приятно", "лас
 assert hasattr(pet, "perch_on_active_window")
 assert hasattr(pet, "react_to_head_pet")
 print("   Stella-grade motion features (inertia, petting, perching) verified!")
+
+print("7. Testing Stella Deconstructed States & Triggers (Sleep, Think, Cheer, Eat, Zzz)...")
+pet.spawn_zzz()
+assert any(p["type"] == "zzz" for p in pet.particles), "Zzz particle must be queued!"
+pet.repaint()
+pix = pet.grab()
+assert not pix.isNull(), "Zzz particle rendering failed!"
+
+pet.trigger_eat("😋 Тестовый перекус!")
+assert pet.state == desktop_pet.DesktopRoboPet.STATE_EAT, "trigger_eat() must set STATE_EAT!"
+
+pet.trigger_cheer()
+assert pet.state == desktop_pet.DesktopRoboPet.STATE_CHEER, "trigger_cheer() must set STATE_CHEER!"
+
+pet.trigger_think()
+assert pet.state == desktop_pet.DesktopRoboPet.STATE_THINK, "trigger_think() must set STATE_THINK!"
+print("   All Stella deconstructed states & triggers verified 100%!")
 
 print("\n>>> ALL DESKTOP PET ENHANCED TESTS PASSED WITH 100% SUCCESS! <<<")
