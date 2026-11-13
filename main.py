@@ -3640,6 +3640,19 @@ class TwoCodeIsland(QWidget):
         else:
             self.spawn_desktop_pet()
 
+    def toggle_apple_status_bar(self):
+        if not getattr(self, "apple_bar", None):
+            try:
+                from apple_status_bar import AppleStatusBar
+                self.apple_bar = AppleStatusBar()
+            except Exception as e:
+                print(f"[Island] Error creating AppleStatusBar: {e}")
+                return
+        if self.apple_bar.isVisible():
+            self.apple_bar.hide()
+        else:
+            self.apple_bar.show()
+
     def setup_tray_icon(self):
         self.tray = QSystemTrayIcon(self)
         self.tray.setIcon(self.create_tray_icon())
@@ -3656,6 +3669,9 @@ class TwoCodeIsland(QWidget):
 
         act_pet = menu.addAction("🐾 Маскот на рабочем столе")
         act_pet.triggered.connect(self.toggle_desktop_pet)
+
+        act_apple_bar = menu.addAction(" Apple Status Bar (Справа вверху)")
+        act_apple_bar.triggered.connect(self.toggle_apple_status_bar)
 
         # 3D Model Submenu
         model_tray_menu = menu.addMenu("🎭 Выбрать 3D модель")
