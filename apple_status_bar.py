@@ -3,7 +3,8 @@ import os
 import psutil
 import datetime
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QHBoxLayout, QLabel, QGraphicsOpacityEffect, QFrame
+    QApplication, QWidget, QHBoxLayout, QLabel, QGraphicsOpacityEffect, QFrame,
+    QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import (
     Qt, QPoint, QRectF, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal
@@ -93,6 +94,13 @@ class AppleStatusBar(QWidget):
         self._reposition_top_right()
         self._update_clock_and_telemetry()
 
+    def _apply_shadow(self, widget):
+        sh = QGraphicsDropShadowEffect(widget)
+        sh.setColor(QColor(0, 0, 0, 220))
+        sh.setBlurRadius(8)
+        sh.setOffset(0, 1)
+        widget.setGraphicsEffect(sh)
+
     def _build_ui(self):
         self.setFixedHeight(34)
         self.setMinimumWidth(520)
@@ -104,6 +112,7 @@ class AppleStatusBar(QWidget):
         # 1. Weather Module
         self.lbl_weather = QLabel(f"⛅ {self.weather_temp}", self)
         self.lbl_weather.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 600;")
+        self._apply_shadow(self.lbl_weather)
         layout.addWidget(self.lbl_weather)
 
         # Separator 1
@@ -114,6 +123,7 @@ class AppleStatusBar(QWidget):
         self.lbl_music = QLabel(f"🎵 {self.music_title}", self)
         self.lbl_music.setStyleSheet("color: #E2E8F0; font-size: 11px; font-weight: 500;")
         self.lbl_music.setMaximumWidth(200)
+        self._apply_shadow(self.lbl_music)
         layout.addWidget(self.lbl_music)
 
         # Separator 2
@@ -123,10 +133,12 @@ class AppleStatusBar(QWidget):
         # 3. PC Telemetry Module (CPU & RAM)
         self.lbl_cpu = QLabel("CPU --%", self)
         self.lbl_cpu.setStyleSheet("color: #30D158; font-size: 11px; font-weight: 700; font-family: 'Consolas', monospace;")
+        self._apply_shadow(self.lbl_cpu)
         layout.addWidget(self.lbl_cpu)
 
         self.lbl_ram = QLabel("RAM --%", self)
         self.lbl_ram.setStyleSheet("color: #64D2FF; font-size: 11px; font-weight: 700; font-family: 'Consolas', monospace;")
+        self._apply_shadow(self.lbl_ram)
         layout.addWidget(self.lbl_ram)
 
         # Separator 3
@@ -136,6 +148,7 @@ class AppleStatusBar(QWidget):
         # 4. Power / Battery (if laptop or desktop AC)
         self.lbl_power = QLabel("⚡ AC", self)
         self.lbl_power.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 600;")
+        self._apply_shadow(self.lbl_power)
         layout.addWidget(self.lbl_power)
 
         # Separator 4
@@ -145,6 +158,7 @@ class AppleStatusBar(QWidget):
         # 5. Calendar & Clock
         self.lbl_clock = QLabel("12:00", self)
         self.lbl_clock.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700; font-family: 'SF Pro Display', 'Segoe UI', sans-serif;")
+        self._apply_shadow(self.lbl_clock)
         layout.addWidget(self.lbl_clock)
 
     def _create_separator(self):
@@ -237,26 +251,12 @@ class AppleStatusBar(QWidget):
         self.anim_opacity.start()
 
     # -------------------------------------------------------------------------
-    # Ultra-Transparent Liquid Glass Rendering
+    # 100% Completely Transparent Island Rendering
     # -------------------------------------------------------------------------
     def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        w = float(self.width())
-        h = float(self.height())
-        r = 16.0  # Smooth rounded capsule
-
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0), r, r)
-
-        # 1. Ultra-transparent dark tinted glass background
-        glass_color = QColor(14, 16, 24, 38)  # Maximum transparency!
-        p.fillPath(path, QBrush(glass_color))
-
-        # 2. Subtle frosted 1px border
-        border_pen = QPen(QColor(255, 255, 255, 24), 1.0)
-        p.strokePath(path, border_pen)
+        # 100% Completely Transparent Island: zero background fill, zero box border!
+        # Only crisp typography, micro-icons and separators floating cleanly over desktop.
+        pass
 
 
 if __name__ == "__main__":
