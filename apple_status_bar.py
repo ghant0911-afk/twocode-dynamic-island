@@ -671,24 +671,83 @@ class AppleStatusFlyout(QWidget):
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 6, 0, 6)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
-        # Overview Stats
+        # Overview Stats Card
         stats_card = QFrame(w)
-        stats_card.setStyleSheet("background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 12px; padding: 8px;")
-        s_lay = QHBoxLayout(stats_card)
+        stats_card.setStyleSheet("""
+            QFrame {
+                background: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 12px;
+                padding: 10px;
+            }
+        """)
+        s_lay = QVBoxLayout(stats_card)
+        s_lay.setContentsMargins(10, 8, 10, 8)
+        s_lay.setSpacing(8)
 
-        self.lbl_task_cpu = QLabel("CPU: 0%", stats_card)
-        self.lbl_task_cpu.setStyleSheet("color: #30D158; font-weight: bold; font-size: 12px;")
-        s_lay.addWidget(self.lbl_task_cpu)
+        # CPU row with progress bar
+        cpu_row = QHBoxLayout()
+        lbl_cpu_title = QLabel("Загрузка CPU:", stats_card)
+        lbl_cpu_title.setStyleSheet("color: rgba(255, 255, 255, 0.8); font-size: 11px;")
+        self.lbl_task_cpu = QLabel("0%", stats_card)
+        self.lbl_task_cpu.setStyleSheet("color: #30D158; font-weight: bold; font-size: 12px; font-family: 'Consolas', monospace;")
+        cpu_row.addWidget(lbl_cpu_title)
+        cpu_row.addStretch()
+        cpu_row.addWidget(self.lbl_task_cpu)
+        s_lay.addLayout(cpu_row)
 
-        self.lbl_task_ram = QLabel("RAM: 0%", stats_card)
-        self.lbl_task_ram.setStyleSheet("color: #64D2FF; font-weight: bold; font-size: 12px;")
-        s_lay.addWidget(self.lbl_task_ram)
+        self.bar_cpu = QProgressBar(stats_card)
+        self.bar_cpu.setFixedHeight(6)
+        self.bar_cpu.setTextVisible(False)
+        self.bar_cpu.setStyleSheet("""
+            QProgressBar {
+                background: rgba(255, 255, 255, 0.10);
+                border-radius: 3px;
+                border: none;
+            }
+            QProgressBar::chunk {
+                background: #30D158;
+                border-radius: 3px;
+            }
+        """)
+        s_lay.addWidget(self.bar_cpu)
+
+        # RAM row with progress bar
+        ram_row = QHBoxLayout()
+        lbl_ram_title = QLabel("Использование RAM:", stats_card)
+        lbl_ram_title.setStyleSheet("color: rgba(255, 255, 255, 0.8); font-size: 11px;")
+        self.lbl_task_ram = QLabel("0%", stats_card)
+        self.lbl_task_ram.setStyleSheet("color: #64D2FF; font-weight: bold; font-size: 12px; font-family: 'Consolas', monospace;")
+        ram_row.addWidget(lbl_ram_title)
+        ram_row.addStretch()
+        ram_row.addWidget(self.lbl_task_ram)
+        s_lay.addLayout(ram_row)
+
+        self.bar_ram = QProgressBar(stats_card)
+        self.bar_ram.setFixedHeight(6)
+        self.bar_ram.setTextVisible(False)
+        self.bar_ram.setStyleSheet("""
+            QProgressBar {
+                background: rgba(255, 255, 255, 0.10);
+                border-radius: 3px;
+                border: none;
+            }
+            QProgressBar::chunk {
+                background: #64D2FF;
+                border-radius: 3px;
+            }
+        """)
+        s_lay.addWidget(self.bar_ram)
 
         layout.addWidget(stats_card)
 
-        # Process List
+        # Process List Card
+        lbl_procs_header = QLabel("Топ процессов по памяти:", w)
+        lbl_procs_header.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px; font-weight: 600;")
+        layout.addWidget(lbl_procs_header)
+
         self.list_procs = QListWidget(w)
         self.list_procs.setFixedHeight(120)
         self.list_procs.setStyleSheet("""
@@ -701,31 +760,34 @@ class AppleStatusFlyout(QWidget):
                 padding: 4px;
             }
             QListWidget::item {
-                padding: 4px;
+                padding: 4px 6px;
                 border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+                font-family: 'Consolas', monospace;
             }
         """)
         layout.addWidget(self.list_procs)
 
-        # Action: Flush RAM
+        # Action: Flush RAM Button
         self.btn_flush_ram = QPushButton("⚡ Очистить кэш RAM", w)
+        self.btn_flush_ram.setFixedHeight(32)
         self.btn_flush_ram.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_flush_ram.setStyleSheet("""
             QPushButton {
-                background: rgba(48, 209, 88, 0.20);
+                background: rgba(48, 209, 88, 0.16);
                 color: #30D158;
-                border: 1px solid rgba(48, 209, 88, 0.40);
-                border-radius: 10px;
-                padding: 8px;
+                border: 1px solid rgba(48, 209, 88, 0.35);
+                border-radius: 8px;
                 font-weight: bold;
                 font-size: 11px;
             }
             QPushButton:hover {
-                background: rgba(48, 209, 88, 0.35);
+                background: rgba(48, 209, 88, 0.28);
+                border: 1px solid rgba(48, 209, 88, 0.60);
             }
         """)
         self.btn_flush_ram.clicked.connect(self._flush_memory)
         layout.addWidget(self.btn_flush_ram)
+
         return w
 
     def _flush_memory(self):
@@ -739,10 +801,14 @@ class AppleStatusFlyout(QWidget):
             self.btn_flush_ram.setText(f"Ошибка: {e}")
 
     def update_tasks_view(self):
-        cpu = psutil.cpu_percent()
-        ram = psutil.virtual_memory().percent
-        self.lbl_task_cpu.setText(f"CPU: {int(cpu)}%")
-        self.lbl_task_ram.setText(f"RAM: {int(ram)}%")
+        cpu = int(psutil.cpu_percent())
+        ram = int(psutil.virtual_memory().percent)
+        self.lbl_task_cpu.setText(f"{cpu}%")
+        self.lbl_task_ram.setText(f"{ram}%")
+        if hasattr(self, 'bar_cpu'):
+            self.bar_cpu.setValue(cpu)
+        if hasattr(self, 'bar_ram'):
+            self.bar_ram.setValue(ram)
 
         self.list_procs.clear()
         procs = []
@@ -753,7 +819,7 @@ class AppleStatusFlyout(QWidget):
                 pass
         procs.sort(key=lambda x: x[1], reverse=True)
         for name, m_pct in procs[:5]:
-            item = QListWidgetItem(f"{name[:20]:<20} · {m_pct:.1f}% RAM")
+            item = QListWidgetItem(f"{name[:18]:<18} · {m_pct:.1f}% RAM")
             self.list_procs.addItem(item)
 
     # -------------------------------------------------------------------------
@@ -981,15 +1047,21 @@ class AppleStatusFlyout(QWidget):
         title = titles.get(tab_idx, "Apple Status")
         self.lbl_flyout_title.setText(title)
 
-        # Switch stack page and raise it
-        self.stack.setCurrentIndex(tab_idx)
-        curr = self.stack.currentWidget()
-        if curr:
-            curr.show()
-            curr.raise_()
+        # 1. STRICT TAB ISOLATION: Explicitly hide all other pages, show ONLY active page
+        for i in range(self.stack.count()):
+            page = self.stack.widget(i)
+            if i == tab_idx:
+                page.setVisible(True)
+                page.show()
+                page.raise_()
+            else:
+                page.setVisible(False)
+                page.hide()
 
+        self.stack.setCurrentIndex(tab_idx)
         self._update_tab_pills(tab_idx)
 
+        # 2. Page-specific data updates
         if tab_idx == 2:
             self.update_tasks_view()
         elif tab_idx == 0:
@@ -997,12 +1069,14 @@ class AppleStatusFlyout(QWidget):
                 self.input_search.setText(self.parent_bar.weather_city)
                 self.list_search_results.hide()
             self.input_search.clearFocus()
+        elif tab_idx == 3:
+            self._load_cached_notes()
 
-        # Dynamic Auto-Resize to fit each tab cleanly
+        # 3. Dynamic Auto-Resize to fit each tab cleanly
         self.adjustSize()
         self.update()
 
-        # Position cleanly beneath trigger
+        # 4. Position cleanly beneath trigger
         if global_trigger_pos:
             x = global_trigger_pos.x() - (self.width() // 2)
             y = global_trigger_pos.y()
