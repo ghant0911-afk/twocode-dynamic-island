@@ -1,81 +1,64 @@
-# TwoCode Dynamic Island Pro — Unified Master Edition 🏝️🤖
+# Minimalist Transparent Status Bar for Windows
 
-Финальная объединенная версия **TwoCode Dynamic Island** для Windows, созданная путем синтеза лучших компонентов из:
-1. Вашего репозитория **`ghant0911-afk/twocode-dynamic-island`** (нейроголос Silero, wake-word слушатель, игровой стример-комментатор, векторные эмоции, 3D барабанщица Астра).
-2. Референса **`sticiandrei9/dinamic-island-windows`** (честный GSMTC плеер Windows, полка OLE, прозрачность окна).
-3. Доработок в **`E:\Dynamic_Island_Work`** (робот в свернутой капле, честный трекинг Яндекс Музыки/Spotify, отсечение лишнего микроменеджмента).
+An ultra-clean, transparent, floating desktop status bar for Windows 10 and 11, inspired by modern mobile and desktop operating system status lines.
 
 ---
 
-## ✨ Ключевые возможности
+## Key Features
 
-### 1. 🤖 Робот TwoCode в свернутой капельке
-- В компактную пилюлю встроен полнофункциональный векторный робот `LiveAnimatedRobo`:
-  - Неоновая антенна с пульсирующей сферой на конце.
-  - Живые зеленые глаза-визор с естественным морганием.
-  - Покачивание головы и танец в ритм музыки при воспроизведении треков.
-  - Реакция на клик: сердечко в визоре и звуковой отклик.
-
-### 2. 🎵 Честный плеер Windows Media (GSMTC WinRT)
-- Подключен модуль `media_engine.py` через `winsdk.windows.media.control`.
-- Выводит **фактически играющий трек** из любого приложения Windows: Яндекс Музыка, Spotify, YouTube, браузеры.
-- Реальный таймлайн трека, интерактивный ползунок перемотки, крутящийся виниловый диск.
-- В свернутой пилюле отображается бегущая строка `Название · Артист` и 4 анимированных эквалайзер-столбика.
-
-### 3. 🎙️ Нейроголос Silero и Голосовой ввод (Wake Word)
-- Синтез речи студийного качества на базе **Silero Neural TTS (тембр Байя 48 kHz)**.
-- Асинхронный фоновый слушатель микрофона с распознаванием ключевых слов («Байя», «Привет», «Остров»).
-- Кнопка отключения микрофона `[🎙️] / [🔇]` прямо в карточке робота.
-- Защита от обратной связи: микрофон автоматически блокируется на время речи робота.
-
-### 4. 🎮 Игровой комментатор и стример (Screen Perception)
-- Анализ динамики экрана в реальном времени и детекция активных игр (Path of Exile, CS2, Dota 2, Minecraft, Cyberpunk 2077, Tarkov).
-- Реакции на экшен, падение здоровья (красный экран), темноту и стелс.
-- Переключатель авто-режима комментатора `[🎮]` в карточке робота.
-
-### 5. 📂 Полка файлов Drag & Drop
-- Быстрый сброс файлов на остров: плавное падение карточек с иконками и размерами.
-- Открытие файла в один клик, копирование пути, очистка полки.
-
-### 6. ⚡ Инструменты продуктивности
-- Мониторинг CPU, RAM и аптайма Windows.
-- Быстрый блокнот с мгновенным сохранением в `notes.txt`.
-- Мгновенные скриншоты области экрана (`ms-screenclip:`).
-- Вызов истории буфера обмена Windows (`Win+V`).
-
-### 7. ⚙️ Интеграция с AI и HTTP API
-- Фоновый локальный HTTP API (порт `28283` в песочнице / `28282` в проде):
-  - `GET /api/status` — статус острова.
-  - `POST /api/emotion` — смена эмоции маскота (`{"emotion": "love | gaming | star | cool"}`).
-  - `POST /api/speak` — озвучить фразу голосом Байи (`{"text": "Привет!"}`).
-  - `POST /api/comment` — немедленно прокомментировать экран.
-- Баннер действий Antigravity с кнопками «Разрешить» и «Отклонить».
-
-### 8. 🥁 3D Аниматор Барабанщицы Астры (VRM Drum Studio Pro)
-- Полностью автономная 3D-студия кинематики и покадровой анимации модели **Астры (Sendagaya Shino)** за барабанной установкой:
-  - 3D-манипулятор **TransformControls** (W = Перемещение, E = Вращение, S = Масштаб, Пробел = Local/World).
-  - Анатомия сидячего барабанщика: правильная посадка на стуле, колени согнуты к педалям, руки направлены вперед к малому барабану и тарелкам.
-  - **Живая запись движений под запись (Overdub Recording)** на скорости 0.5x / 0.25x.
-  - **Покадровый таймлайн (Keyframing)** с шаговыми кнопками ювелирной доводки (`+5°` / `-5°`).
-  - Библиотека пресетов: Готовность (Ready), Удар по малому (Snare), Удар по хай-хэту (Hi-Hat), Крэш (Crash), Замахи (Windup), Генератор ритма 8-Beat.
-  - Экспорт и импорт проектов в формате `astra_drum_animation.json` в 1 клик.
-  - **Подробное руководство:** См. [DRUM_STUDIO_GUIDE.md](file:///./DRUM_STUDIO_GUIDE.md).
+- **100% Transparent Floating Island**: Clean typography with subtle drop-shadows that float seamlessly over any wallpaper.
+- **Top-Right Auto-Hide Dock**: Stays docked at the top-right corner. Fades to 8% opacity when idle and smoothly brightens to 98% on hover.
+- **Real-Time System Telemetry**: Live CPU and RAM usage tracking with high-load dynamic warnings (>80% CPU).
+- **Windows Media Controller**: Direct integration with Windows System Media Transport Controls (SMTC) to display current track and artist seamlessly.
+- **Weather Module**: Lightweight live weather indicators with 3-day forecast flyout and city search engine.
+- **Desktop Weather Wallpaper Overlay (macOS Sonoma / iOS 17 Aesthetic)**:
+  - Frosted liquid glass capsule floating directly on your desktop wallpaper.
+  - **100% Non-Clickable / Click-Through**: Built with Win32 `WS_EX_TRANSPARENT` & `HWND_BOTTOM` so all mouse clicks, drag selections, and desktop right-clicks pass through with zero interference.
+  - **Live Auto-Sync**: Automatically detects city changes chosen in the status bar.
+  - **Atmospheric Particles**: Real-time subtle 30 FPS weather physics (rain, snow, sunny ambient motes).
+  - Can be toggled on/off from the Tools tab (☕) or run standalone with `launch_weather_overlay.vbs`.
+- **Interactive Flyout Widgets**:
+  - ⛅ **Weather**: Current temperature, humidity, wind, and forecast.
+  - 🎵 **Media Player**: Track info, progress bar, play/pause, next/previous controls.
+  - ⚡ **Task Manager**: Top resource-consuming processes with a one-click RAM optimization trigger.
+  - 📅 **Calendar & Notes**: Monthly view with quick persistent local note-taking.
+  - ☕ **Utility Kit**: Caffeine keep-awake mode, Windows Snipping Tool launcher, and clipboard history.
+- **Intuitive Gestures**:
+  - **Mouse Wheel Scroll**: Adjust system volume up or down directly over the bar.
+  - **Double Click**: Toggle media playback (play/pause).
+  - **Right Click**: Quick context menu to toggle modules, settings, or exit.
 
 ---
 
-## 🚀 Быстрый запуск
+## Installation & Setup
 
-### Запуск 3D-Студии Барабанщицы (1 клик):
-1. Дважды кликните по **`launch_drum_studio.bat`** (или выполните `launch_drum_studio.ps1`).
-2. Браузер автоматически откроет 3D-редактор по адресу `http://127.0.0.1:8098/drum_animator.html`.
+### Prerequisites
+- Windows 10 or Windows 11
+- Python 3.10 or higher
 
-### Запуск Dynamic Island (Основное приложение):
-1. Запуск с окном консоли (для отладки):
+### Install Dependencies
 ```bash
-start.bat
+pip install -r requirements.txt
 ```
 
-2. Тихий запуск без консоли:
+### Launch
+Run in terminal:
 ```bash
-wscript launch.vbs
+python apple_status_bar.py
 ```
+
+Or double-click `start.bat` for a quick launcher.
+For silent background execution without a command prompt window, double-click `launch.vbs`.
+
+---
+
+## Technical Stack
+- **PyQt6**: Core UI framework, frameless window, transparent canvas, smooth property animations.
+- **psutil**: System hardware statistics (CPU, memory, battery).
+- **winsdk**: Windows Runtime API integration for media sessions.
+- **Win32 API**: Low-level input simulation (volume, media keys) and thread execution state management.
+
+---
+
+## License
+MIT License. Free for personal and commercial use.

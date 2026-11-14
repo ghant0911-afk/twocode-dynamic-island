@@ -6,6 +6,7 @@ import ctypes
 import json
 import urllib.request
 import urllib.parse
+import subprocess
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame,
@@ -970,6 +971,49 @@ class AppleStatusFlyout(QWidget):
         grid.addWidget(self.btn_snip)
         layout.addLayout(grid)
 
+        # Quick Actions Grid 2: Desktop Weather Wallpaper Widget & Task Manager
+        grid2 = QHBoxLayout()
+        grid2.setSpacing(8)
+
+        self.btn_wallpaper_weather = QPushButton("⛅ Погода на обоях: ВКЛ", w)
+        self.btn_wallpaper_weather.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_wallpaper_weather.setStyleSheet("""
+            QPushButton {
+                background: rgba(10, 132, 255, 0.25);
+                color: #0A84FF;
+                border: 1px solid #0A84FF;
+                border-radius: 10px;
+                padding: 8px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: rgba(10, 132, 255, 0.35);
+            }
+        """)
+        self.btn_wallpaper_weather.clicked.connect(self._toggle_wallpaper_weather_click)
+        grid2.addWidget(self.btn_wallpaper_weather)
+
+        self.btn_taskmgr = QPushButton("⚡ Диспетчер", w)
+        self.btn_taskmgr.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_taskmgr.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                padding: 8px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.18);
+            }
+        """)
+        self.btn_taskmgr.clicked.connect(self._open_taskmgr)
+        grid2.addWidget(self.btn_taskmgr)
+        layout.addLayout(grid2)
+
         # Clipboard History Header
         lbl_clip = QLabel("📋 Последние скопированные элементы:", w)
         lbl_clip.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 11px;")
@@ -1033,6 +1077,48 @@ class AppleStatusFlyout(QWidget):
         except Exception:
             pass
 
+    def _open_taskmgr(self):
+        try:
+            subprocess.Popen(["taskmgr"])
+        except Exception:
+            pass
+
+    def _toggle_wallpaper_weather_click(self):
+        if self.parent_bar:
+            active = self.parent_bar.toggle_wallpaper_weather()
+            if active:
+                self.btn_wallpaper_weather.setText("⛅ Погода на обоях: ВКЛ")
+                self.btn_wallpaper_weather.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(10, 132, 255, 0.25);
+                        color: #0A84FF;
+                        border: 1px solid #0A84FF;
+                        border-radius: 10px;
+                        padding: 8px;
+                        font-size: 11px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background: rgba(10, 132, 255, 0.35);
+                    }
+                """)
+            else:
+                self.btn_wallpaper_weather.setText("⛅ Погода на обоях: ВЫКЛ")
+                self.btn_wallpaper_weather.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(255, 255, 255, 0.08);
+                        color: #FFFFFF;
+                        border: 1px solid rgba(255, 255, 255, 0.12);
+                        border-radius: 10px;
+                        padding: 8px;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+                    QPushButton:hover {
+                        background: rgba(255, 255, 255, 0.18);
+                    }
+                """)
+
     def _copy_item_back(self, item):
         text = item.text()
         QApplication.clipboard().setText(text)
@@ -1086,6 +1172,41 @@ class AppleStatusFlyout(QWidget):
             self.input_search.clearFocus()
         elif tab_idx == 3:
             self._load_cached_notes()
+        elif tab_idx == 4:
+            if hasattr(self, "btn_wallpaper_weather") and self.parent_bar:
+                running = self.parent_bar.is_wallpaper_weather_running()
+                if running:
+                    self.btn_wallpaper_weather.setText("⛅ Погода на обоях: ВКЛ")
+                    self.btn_wallpaper_weather.setStyleSheet("""
+                        QPushButton {
+                            background: rgba(10, 132, 255, 0.25);
+                            color: #0A84FF;
+                            border: 1px solid #0A84FF;
+                            border-radius: 10px;
+                            padding: 8px;
+                            font-size: 11px;
+                            font-weight: bold;
+                        }
+                        QPushButton:hover {
+                            background: rgba(10, 132, 255, 0.35);
+                        }
+                    """)
+                else:
+                    self.btn_wallpaper_weather.setText("⛅ Погода на обоях: ВЫКЛ")
+                    self.btn_wallpaper_weather.setStyleSheet("""
+                        QPushButton {
+                            background: rgba(255, 255, 255, 0.08);
+                            color: #FFFFFF;
+                            border: 1px solid rgba(255, 255, 255, 0.12);
+                            border-radius: 10px;
+                            padding: 8px;
+                            font-size: 11px;
+                            font-weight: 600;
+                        }
+                        QPushButton:hover {
+                            background: rgba(255, 255, 255, 0.18);
+                        }
+                    """)
 
         # 3. Dynamic Auto-Resize to fit each tab cleanly with zero clipping
         tab_heights = {
@@ -1093,7 +1214,7 @@ class AppleStatusFlyout(QWidget):
             1: 200, # Music Player
             2: 355, # Task Manager with progress bars & top procs
             3: 250, # Calendar & Notes
-            4: 240  # Tools & Clipboard
+            4: 280  # Tools & Clipboard
         }
         target_h = tab_heights.get(tab_idx, 320)
         self.setFixedHeight(target_h)
@@ -1262,6 +1383,9 @@ class AppleStatusBar(QWidget):
         self._reposition_top_right()
         self._update_clock_and_telemetry()
         self._fetch_weather()
+
+        # Auto-ensure Desktop Weather Wallpaper Overlay is running
+        QTimer.singleShot(1500, self._ensure_wallpaper_overlay)
 
     def _apply_shadow(self, widget):
         sh = QGraphicsDropShadowEffect(widget)
@@ -1599,6 +1723,37 @@ class AppleStatusBar(QWidget):
             self.lbl_tools.setStyleSheet("color: #FFFFFF; font-size: 12px; padding: 2px 6px;")
         return self.caffeine_active
 
+    def is_wallpaper_weather_running(self) -> bool:
+        hwnd = user32.FindWindowW(None, "Desktop Weather Wallpaper Overlay")
+        return bool(hwnd)
+
+    def toggle_wallpaper_weather(self) -> bool:
+        """Toggles the non-clickable desktop wallpaper weather overlay."""
+        hwnd = user32.FindWindowW(None, "Desktop Weather Wallpaper Overlay")
+        if hwnd:
+            WM_CLOSE = 0x0010
+            user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+            return False
+        else:
+            overlay_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "desktop_weather_overlay.py")
+            pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+            try:
+                subprocess.Popen([pythonw, overlay_script], creationflags=0x08000000)
+                return True
+            except Exception:
+                return False
+
+    def _ensure_wallpaper_overlay(self):
+        """Starts desktop_weather_overlay.py if not already running."""
+        if not self.is_wallpaper_weather_running():
+            overlay_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "desktop_weather_overlay.py")
+            if os.path.exists(overlay_script):
+                pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+                try:
+                    subprocess.Popen([pythonw, overlay_script], creationflags=0x08000000)
+                except Exception:
+                    pass
+
     # -------------------------------------------------------------------------
     # Scroll-to-Control & Gestures
     # -------------------------------------------------------------------------
@@ -1649,6 +1804,10 @@ class AppleStatusBar(QWidget):
         act_caffeine = QAction("☕ Режим Не спать (Caffeine)", self)
         act_caffeine.triggered.connect(self.toggle_caffeine)
         menu.addAction(act_caffeine)
+
+        act_wallpaper = QAction("🖼️ Виджет погоды на обоях", self)
+        act_wallpaper.triggered.connect(self.toggle_wallpaper_weather)
+        menu.addAction(act_wallpaper)
 
         menu.addSeparator()
 
