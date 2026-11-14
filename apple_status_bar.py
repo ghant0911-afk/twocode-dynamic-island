@@ -1724,12 +1724,12 @@ class AppleStatusBar(QWidget):
         return self.caffeine_active
 
     def is_wallpaper_weather_running(self) -> bool:
-        hwnd = user32.FindWindowW(None, "Desktop Weather Wallpaper Overlay")
+        hwnd = user32.FindWindowW(None, "Fullscreen Weather Wallpaper Overlay") or user32.FindWindowW(None, "Desktop Weather Wallpaper Overlay")
         return bool(hwnd)
 
     def toggle_wallpaper_weather(self) -> bool:
         """Toggles the non-clickable desktop wallpaper weather overlay."""
-        hwnd = user32.FindWindowW(None, "Desktop Weather Wallpaper Overlay")
+        hwnd = user32.FindWindowW(None, "Fullscreen Weather Wallpaper Overlay") or user32.FindWindowW(None, "Desktop Weather Wallpaper Overlay")
         if hwnd:
             WM_CLOSE = 0x0010
             user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
