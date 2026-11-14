@@ -1387,8 +1387,8 @@ class AppleStatusBar(QWidget):
 
     def _check_mouse_hover(self):
         cursor = QCursor.pos()
-        # Top-right hover hotspot: top edge of screen above bar or within bar bounds
-        in_top_bezel = (cursor.y() <= 6 and cursor.x() >= (self.x() - 40) and cursor.x() <= (self.x() + self.width() + 40))
+        # Top-right hover hotspot: top edge of screen above bar or within dock bounds
+        in_top_bezel = (cursor.y() <= 12 and cursor.x() >= (self.x_dock - 60) and cursor.x() <= (self.x_dock + self.width() + 60))
         in_bar = self.geometry().contains(cursor)
         in_flyout = self.flyout.isVisible() and self.flyout.geometry().contains(cursor)
 
