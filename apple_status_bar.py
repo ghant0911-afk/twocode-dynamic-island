@@ -161,6 +161,26 @@ class WeatherWorker(QThread):
         })
 
 
+class ClickableLabel(QLabel):
+    """
+    Native PyQt6 subclassed QLabel ensuring 100% reliable click interception
+    without fragile monkey-patching on C++ vtable.
+    """
+    clicked = pyqtSignal(int)
+
+    def __init__(self, tab_idx: int, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self.tab_idx = tab_idx
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.tab_idx)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class AppleStatusFlyout(QWidget):
     """
     Apple macOS-grade Frosted Glass Dropdown Flyout.
@@ -960,7 +980,14 @@ class AppleStatusFlyout(QWidget):
         }
         title = titles.get(tab_idx, "Apple Status")
         self.lbl_flyout_title.setText(title)
+
+        # Switch stack page and raise it
         self.stack.setCurrentIndex(tab_idx)
+        curr = self.stack.currentWidget()
+        if curr:
+            curr.show()
+            curr.raise_()
+
         self._update_tab_pills(tab_idx)
 
         if tab_idx == 2:
@@ -969,11 +996,16 @@ class AppleStatusFlyout(QWidget):
             if self.parent_bar:
                 self.input_search.setText(self.parent_bar.weather_city)
                 self.list_search_results.hide()
+            self.input_search.clearFocus()
+
+        # Dynamic Auto-Resize to fit each tab cleanly
+        self.adjustSize()
+        self.update()
 
         # Position cleanly beneath trigger
         if global_trigger_pos:
             x = global_trigger_pos.x() - (self.width() // 2)
-            y = global_trigger_pos.y() + 10
+            y = global_trigger_pos.y()
             screen = QApplication.primaryScreen()
             if screen:
                 geom = screen.availableGeometry()
@@ -987,9 +1019,6 @@ class AppleStatusFlyout(QWidget):
         self.raise_()
 
     def leaveEvent(self, event):
-        if self.input_search.hasFocus() or self.txt_quick_notes.hasFocus():
-            super().leaveEvent(event)
-            return
         cursor = QCursor.pos()
         if not self.rect().contains(self.mapFromGlobal(cursor)):
             if self.parent_bar and not self.parent_bar.geometry().contains(cursor):
@@ -1043,12 +1072,9 @@ class AppleStatusBar(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool |
-            Qt.WindowType.WindowDoesNotAcceptFocus
+            Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setMouseTracking(True)
 
         # State
@@ -1150,70 +1176,55 @@ class AppleStatusBar(QWidget):
         layout.setContentsMargins(14, 0, 14, 0)
         layout.setSpacing(10)
 
-        # 1. Weather Module
-        self.lbl_weather = QLabel(f"{self.weather_icon} {self.weather_temp}", self)
-        self.lbl_weather.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 1. Weather Module (ClickableLabel)
+        self.lbl_weather = ClickableLabel(0, f"{self.weather_icon} {self.weather_temp}", self)
         self.lbl_weather.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 600; padding: 2px 4px;")
         self._apply_shadow(self.lbl_weather)
+        self.lbl_weather.clicked.connect(lambda idx: self._open_flyout(idx, self.lbl_weather))
         layout.addWidget(self.lbl_weather)
 
         layout.addWidget(self._create_separator())
 
-        # 2. Seamless Music Module
-        self.lbl_music = QLabel(f"🎵 {self.music_title}", self)
-        self.lbl_music.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 2. Seamless Music Module (ClickableLabel)
+        self.lbl_music = ClickableLabel(1, f"🎵 {self.music_title}", self)
         self.lbl_music.setStyleSheet("color: #E2E8F0; font-size: 11px; font-weight: 500; padding: 2px 4px;")
         self.lbl_music.setMaximumWidth(210)
         self._apply_shadow(self.lbl_music)
+        self.lbl_music.clicked.connect(lambda idx: self._open_flyout(idx, self.lbl_music))
         layout.addWidget(self.lbl_music)
 
         layout.addWidget(self._create_separator())
 
-        # 3. PC Telemetry Module (CPU & RAM)
-        self.lbl_cpu = QLabel("CPU --%", self)
-        self.lbl_cpu.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 3. PC Telemetry Module (CPU & RAM) (ClickableLabel)
+        self.lbl_cpu = ClickableLabel(2, "CPU --%", self)
         self.lbl_cpu.setStyleSheet("color: #30D158; font-size: 11px; font-weight: 700; font-family: 'Consolas', monospace; padding: 2px 3px;")
         self._apply_shadow(self.lbl_cpu)
+        self.lbl_cpu.clicked.connect(lambda idx: self._open_flyout(idx, self.lbl_cpu))
         layout.addWidget(self.lbl_cpu)
 
-        self.lbl_ram = QLabel("RAM --%", self)
-        self.lbl_ram.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.lbl_ram = ClickableLabel(2, "RAM --%", self)
         self.lbl_ram.setStyleSheet("color: #64D2FF; font-size: 11px; font-weight: 700; font-family: 'Consolas', monospace; padding: 2px 3px;")
         self._apply_shadow(self.lbl_ram)
+        self.lbl_ram.clicked.connect(lambda idx: self._open_flyout(idx, self.lbl_cpu))
         layout.addWidget(self.lbl_ram)
 
         layout.addWidget(self._create_separator())
 
-        # 4. Quick Tools (Caffeine & Tools)
-        self.lbl_tools = QLabel("☕", self)
-        self.lbl_tools.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 4. Quick Tools (Caffeine & Tools) (ClickableLabel)
+        self.lbl_tools = ClickableLabel(4, "☕", self)
         self.lbl_tools.setStyleSheet("color: #FFFFFF; font-size: 12px; padding: 2px 6px;")
         self._apply_shadow(self.lbl_tools)
+        self.lbl_tools.clicked.connect(lambda idx: self._open_flyout(idx, self.lbl_tools))
         layout.addWidget(self.lbl_tools)
 
         layout.addWidget(self._create_separator())
 
-        # 5. Calendar & Clock
-        self.lbl_clock = QLabel("12:00", self)
-        self.lbl_clock.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 5. Calendar & Clock (ClickableLabel)
+        self.lbl_clock = ClickableLabel(3, "12:00", self)
         self.lbl_clock.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700; font-family: 'SF Pro Display', 'Segoe UI', sans-serif; padding: 2px 6px;")
         self._apply_shadow(self.lbl_clock)
+        self.lbl_clock.clicked.connect(lambda idx: self._open_flyout(idx, self.lbl_clock))
         layout.addWidget(self.lbl_clock)
-
-        # Direct Click Handlers on each label for 100% reliable trigger
-        self.lbl_weather.mousePressEvent = lambda e: self._on_label_click(0, self.lbl_weather, e)
-        self.lbl_music.mousePressEvent = lambda e: self._on_label_click(1, self.lbl_music, e)
-        self.lbl_cpu.mousePressEvent = lambda e: self._on_label_click(2, self.lbl_cpu, e)
-        self.lbl_ram.mousePressEvent = lambda e: self._on_label_click(2, self.lbl_cpu, e)
-        self.lbl_tools.mousePressEvent = lambda e: self._on_label_click(4, self.lbl_tools, e)
-        self.lbl_clock.mousePressEvent = lambda e: self._on_label_click(3, self.lbl_clock, e)
-
-    def _on_label_click(self, tab_idx, trigger_widget, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._open_flyout(tab_idx, trigger_widget)
-            event.accept()
-        else:
-            event.ignore()
 
     def _create_separator(self):
         sep = QFrame(self)
@@ -1325,15 +1336,18 @@ class AppleStatusBar(QWidget):
             self._slide_down()
         self.hide_timer.stop()
         self.flyout_leave_timer.stop()
-        gpos = trigger_widget.mapToGlobal(QPoint(trigger_widget.width() // 2, trigger_widget.height()))
-        self.flyout.show_tab(tab_idx, gpos)
+
+        # Fixed anchor Y at visible bar bottom + 8px gap (never overlaps status bar!)
+        anchor_y = self.y_visible + self.height() + 8
+        anchor_x = self.x_dock + trigger_widget.x() + (trigger_widget.width() // 2)
+
+        self.flyout.show_tab(tab_idx, QPoint(anchor_x, anchor_y))
+        self.flyout.show()
         self.flyout.raise_()
         self.flyout.activateWindow()
 
     def _on_flyout_leave_timeout(self):
         if not self.flyout.isVisible():
-            return
-        if self.flyout.input_search.hasFocus() or self.flyout.txt_quick_notes.hasFocus():
             return
         cursor = QCursor.pos()
         in_flyout = self.flyout.geometry().contains(cursor)
