@@ -204,7 +204,7 @@ class AppleStatusFlyout(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
-        self.setFixedWidth(340)
+        self.setFixedWidth(356)
         self.current_tab = 0
 
         # Drop shadow for flyout
@@ -307,8 +307,9 @@ class AppleStatusFlyout(QWidget):
 
         # 1. Search Bar Card
         search_card = QFrame(w)
+        search_card.setObjectName("search_card")
         search_card.setStyleSheet("""
-            QFrame {
+            #search_card {
                 background: rgba(255, 255, 255, 0.08);
                 border: 1px solid rgba(255, 255, 255, 0.14);
                 border-radius: 10px;
@@ -579,14 +580,23 @@ class AppleStatusFlyout(QWidget):
     def _create_music_page(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(0, 6, 0, 6)
+        layout.setContentsMargins(0, 4, 0, 4)
         layout.setSpacing(10)
 
-        # Track Info Card
+        # Track Info & Controls Unified Card
         track_card = QFrame(w)
-        track_card.setStyleSheet("background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 12px; padding: 10px;")
+        track_card.setObjectName("track_card")
+        track_card.setStyleSheet("""
+            #track_card {
+                background: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 12px;
+                padding: 10px;
+            }
+        """)
         t_lay = QVBoxLayout(track_card)
-        t_lay.setSpacing(4)
+        t_lay.setContentsMargins(10, 8, 10, 8)
+        t_lay.setSpacing(6)
 
         self.lbl_m_track = QLabel("Нет активного трека", track_card)
         self.lbl_m_track.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: 700;")
@@ -612,17 +622,16 @@ class AppleStatusFlyout(QWidget):
             }
         """)
         t_lay.addWidget(self.progress_music)
-        layout.addWidget(track_card)
 
-        # Controls
+        # Controls row
         ctrl_layout = QHBoxLayout()
         ctrl_layout.setSpacing(12)
 
-        self.btn_prev = QPushButton("⏮", w)
-        self.btn_play = QPushButton("▶", w)
-        self.btn_next = QPushButton("⏭", w)
+        self.btn_prev = QPushButton("⏮", track_card)
+        self.btn_play = QPushButton("▶", track_card)
+        self.btn_next = QPushButton("⏭", track_card)
 
-        for btn in (self.btn_prev, self.btn_play, self.btn_next):
+        for btn in (self.btn_prev, self.btn_next):
             btn.setFixedSize(36, 36)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet("""
@@ -638,14 +647,16 @@ class AppleStatusFlyout(QWidget):
                 }
             """)
 
-        self.btn_play.setFixedSize(44, 44)
+        self.btn_play.setFixedSize(42, 42)
+        self.btn_play.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_play.setStyleSheet("""
             QPushButton {
                 background: #0A84FF;
                 color: #FFFFFF;
-                border-radius: 22px;
-                font-size: 18px;
+                border-radius: 21px;
+                font-size: 16px;
                 font-weight: bold;
+                border: none;
             }
             QPushButton:hover {
                 background: #0071E3;
@@ -661,7 +672,9 @@ class AppleStatusFlyout(QWidget):
         ctrl_layout.addWidget(self.btn_play)
         ctrl_layout.addWidget(self.btn_next)
         ctrl_layout.addStretch()
-        layout.addLayout(ctrl_layout)
+        t_lay.addLayout(ctrl_layout)
+
+        layout.addWidget(track_card)
         return w
 
     # -------------------------------------------------------------------------
@@ -670,13 +683,14 @@ class AppleStatusFlyout(QWidget):
     def _create_tasks_page(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(0, 6, 0, 6)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(8)
 
         # Overview Stats Card
         stats_card = QFrame(w)
+        stats_card.setObjectName("stats_card")
         stats_card.setStyleSheet("""
-            QFrame {
+            #stats_card {
                 background: rgba(255, 255, 255, 0.06);
                 border: 1px solid rgba(255, 255, 255, 0.10);
                 border-radius: 12px;
@@ -685,7 +699,7 @@ class AppleStatusFlyout(QWidget):
         """)
         s_lay = QVBoxLayout(stats_card)
         s_lay.setContentsMargins(10, 8, 10, 8)
-        s_lay.setSpacing(8)
+        s_lay.setSpacing(6)
 
         # CPU row with progress bar
         cpu_row = QHBoxLayout()
@@ -699,17 +713,17 @@ class AppleStatusFlyout(QWidget):
         s_lay.addLayout(cpu_row)
 
         self.bar_cpu = QProgressBar(stats_card)
-        self.bar_cpu.setFixedHeight(6)
+        self.bar_cpu.setFixedHeight(5)
         self.bar_cpu.setTextVisible(False)
         self.bar_cpu.setStyleSheet("""
             QProgressBar {
                 background: rgba(255, 255, 255, 0.10);
-                border-radius: 3px;
+                border-radius: 2px;
                 border: none;
             }
             QProgressBar::chunk {
                 background: #30D158;
-                border-radius: 3px;
+                border-radius: 2px;
             }
         """)
         s_lay.addWidget(self.bar_cpu)
@@ -726,17 +740,17 @@ class AppleStatusFlyout(QWidget):
         s_lay.addLayout(ram_row)
 
         self.bar_ram = QProgressBar(stats_card)
-        self.bar_ram.setFixedHeight(6)
+        self.bar_ram.setFixedHeight(5)
         self.bar_ram.setTextVisible(False)
         self.bar_ram.setStyleSheet("""
             QProgressBar {
                 background: rgba(255, 255, 255, 0.10);
-                border-radius: 3px;
+                border-radius: 2px;
                 border: none;
             }
             QProgressBar::chunk {
                 background: #64D2FF;
-                border-radius: 3px;
+                border-radius: 2px;
             }
         """)
         s_lay.addWidget(self.bar_ram)
@@ -745,11 +759,12 @@ class AppleStatusFlyout(QWidget):
 
         # Process List Card
         lbl_procs_header = QLabel("Топ процессов по памяти:", w)
+        lbl_procs_header.setFixedHeight(18)
         lbl_procs_header.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px; font-weight: 600;")
         layout.addWidget(lbl_procs_header)
 
         self.list_procs = QListWidget(w)
-        self.list_procs.setFixedHeight(120)
+        self.list_procs.setFixedHeight(105)
         self.list_procs.setStyleSheet("""
             QListWidget {
                 background: rgba(255, 255, 255, 0.04);
@@ -760,7 +775,7 @@ class AppleStatusFlyout(QWidget):
                 padding: 4px;
             }
             QListWidget::item {
-                padding: 4px 6px;
+                padding: 3px 6px;
                 border-bottom: 1px solid rgba(255, 255, 255, 0.04);
                 font-family: 'Consolas', monospace;
             }
@@ -773,7 +788,7 @@ class AppleStatusFlyout(QWidget):
         self.btn_flush_ram.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_flush_ram.setStyleSheet("""
             QPushButton {
-                background: rgba(48, 209, 88, 0.16);
+                background: rgba(48, 209, 88, 0.15);
                 color: #30D158;
                 border: 1px solid rgba(48, 209, 88, 0.35);
                 border-radius: 8px;
@@ -1072,8 +1087,16 @@ class AppleStatusFlyout(QWidget):
         elif tab_idx == 3:
             self._load_cached_notes()
 
-        # 3. Dynamic Auto-Resize to fit each tab cleanly
-        self.adjustSize()
+        # 3. Dynamic Auto-Resize to fit each tab cleanly with zero clipping
+        tab_heights = {
+            0: 440, # Weather with search & forecast
+            1: 200, # Music Player
+            2: 355, # Task Manager with progress bars & top procs
+            3: 250, # Calendar & Notes
+            4: 240  # Tools & Clipboard
+        }
+        target_h = tab_heights.get(tab_idx, 320)
+        self.setFixedHeight(target_h)
         self.update()
 
         # 4. Position cleanly beneath trigger
@@ -1111,12 +1134,17 @@ class AppleStatusFlyout(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
+        # CRITICAL: Clear translucent backing store to eliminate ghost pixels across tab switches
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+        painter.fillRect(self.rect(), Qt.GlobalColor.transparent)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+
         # macOS Liquid Frosted Glass Dark Fill
         rect = QRectF(self.rect())
         path = QPainterPath()
         path.addRoundedRect(rect, 16, 16)
 
-        painter.fillPath(path, QBrush(QColor(22, 22, 26, 240)))
+        painter.fillPath(path, QBrush(QColor(22, 22, 26, 245)))
         pen = QPen(QColor(255, 255, 255, 30))
         pen.setWidth(1)
         painter.setPen(pen)
@@ -1413,7 +1441,7 @@ class AppleStatusBar(QWidget):
 
         # Fixed anchor Y at visible bar bottom + 8px gap (never overlaps status bar!)
         anchor_y = self.y_visible + self.height() + 8
-        anchor_x = self.x_dock + trigger_widget.x() + (trigger_widget.width() // 2)
+        anchor_x = trigger_widget.mapToGlobal(QPoint(trigger_widget.width() // 2, 0)).x()
 
         self.flyout.show_tab(tab_idx, QPoint(anchor_x, anchor_y))
         self.flyout.show()
