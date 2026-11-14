@@ -45,10 +45,51 @@ except Exception:
     HAS_MEDIA = False
 
 
+class CitySearchWorker(QThread):
+    """
+    Asynchronous city search worker using Open-Meteo Geocoding API.
+    Provides fast, free autocomplete for cities worldwide in Russian.
+    """
+    results_ready = pyqtSignal(list)
+
+    def __init__(self, query=""):
+        super().__init__()
+        self.query = query.strip()
+
+    def run(self):
+        if not self.query or len(self.query) < 2:
+            self.results_ready.emit([])
+            return
+
+        encoded = urllib.parse.quote(self.query)
+        url = f"https://geocoding-api.open-meteo.com/v1/search?name={encoded}&count=6&language=ru&format=json"
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'curl/7.68.0'})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                raw_results = data.get('results', [])
+                items = []
+                for r in raw_results:
+                    name = r.get('name', '')
+                    admin1 = r.get('admin1', '')
+                    country = r.get('country', '')
+                    subtitle = f"{admin1}, {country}" if admin1 else country
+                    items.append({
+                        "name": name,
+                        "subtitle": subtitle,
+                        "display": f"{name} ({subtitle})" if subtitle else name
+                    })
+                self.results_ready.emit(items)
+                return
+        except Exception:
+            pass
+        self.results_ready.emit([])
+
+
 class WeatherWorker(QThread):
     """
-    Background worker that detects user city via IP geolocation
-    and queries live weather from wttr.in without blocking the UI.
+    Background worker that queries live weather from wttr.in
+    for the chosen city with zero UI freezes.
     """
     weather_fetched = pyqtSignal(dict)
 
@@ -78,6 +119,8 @@ class WeatherWorker(QThread):
             city_display = "Екатеринбург"
         elif target_city.lower() in ("kazan", "казань"):
             city_display = "Казань"
+        elif target_city.lower() in ("voronezh", "воронеж"):
+            city_display = "Воронеж"
 
         encoded = urllib.parse.quote(target_city)
         url = f"https://wttr.in/{encoded}?format=%c;%t;%C;%h;%w&lang=ru"
@@ -122,7 +165,7 @@ class AppleStatusFlyout(QWidget):
     """
     Apple macOS-grade Frosted Glass Dropdown Flyout.
     Contains 5 modular views:
-    0: Weather & City Forecast
+    0: Weather & City Search Engine
     1: Apple Music Controller
     2: Mini Task Manager (Top Processes & RAM Flush)
     3: Calendar & Quick Notes
@@ -137,11 +180,9 @@ class AppleStatusFlyout(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool |
-            Qt.WindowType.WindowDoesNotAcceptFocus
+            Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self.setFixedWidth(340)
         self.current_tab = 0
@@ -206,7 +247,7 @@ class AppleStatusFlyout(QWidget):
         self.stack = QStackedWidget(self)
         main_layout.addWidget(self.stack)
 
-        # Page 0: Weather
+        # Page 0: Weather & City Search
         self.page_weather = self._create_weather_page()
         self.stack.addWidget(self.page_weather)
 
@@ -236,95 +277,202 @@ class AppleStatusFlyout(QWidget):
                 btn.setStyleSheet("background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.7); border-radius: 6px; font-size: 11px; border: 1px solid rgba(255, 255, 255, 0.12);")
 
     # -------------------------------------------------------------------------
-    # Page 0: Weather
+    # Page 0: Weather with Live City Search Engine
     # -------------------------------------------------------------------------
     def _create_weather_page(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(0, 6, 0, 6)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(8)
 
-        # City input selector
-        city_card = QFrame(w)
-        city_card.setStyleSheet("background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 2px;")
-        c_layout = QHBoxLayout(city_card)
-        c_layout.setContentsMargins(8, 2, 6, 2)
-        c_layout.setSpacing(6)
+        # 1. Search Bar Card
+        search_card = QFrame(w)
+        search_card.setStyleSheet("""
+            QFrame {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 10px;
+                padding: 2px 4px;
+            }
+        """)
+        s_layout = QHBoxLayout(search_card)
+        s_layout.setContentsMargins(6, 2, 4, 2)
+        s_layout.setSpacing(6)
 
-        lbl_pin = QLabel("📍", city_card)
-        lbl_pin.setStyleSheet("font-size: 12px;")
-        c_layout.addWidget(lbl_pin)
+        lbl_icon = QLabel("🔍", search_card)
+        lbl_icon.setStyleSheet("font-size: 11px;")
+        s_layout.addWidget(lbl_icon)
 
-        self.input_city = QLineEdit(city_card)
-        self.input_city.setPlaceholderText("Город (напр. Москва, Казань)...")
-        self.input_city.setStyleSheet("background: transparent; color: #FFFFFF; border: none; font-size: 11px; font-weight: 600;")
-        self.input_city.returnPressed.connect(self._on_city_submit)
-        c_layout.addWidget(self.input_city)
+        self.input_search = QLineEdit(search_card)
+        self.input_search.setPlaceholderText("Поиск города (напр. Воронеж, Сочи)...")
+        self.input_search.setStyleSheet("background: transparent; color: #FFFFFF; border: none; font-size: 11px; font-weight: 500;")
+        self.input_search.textChanged.connect(self._on_search_text_changed)
+        self.input_search.returnPressed.connect(self._on_search_enter)
+        s_layout.addWidget(self.input_search)
 
-        self.btn_city_update = QPushButton("OK", city_card)
-        self.btn_city_update.setFixedSize(32, 22)
-        self.btn_city_update.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_city_update.setStyleSheet("""
+        self.btn_clear_search = QPushButton("✕", search_card)
+        self.btn_clear_search.setFixedSize(18, 18)
+        self.btn_clear_search.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear_search.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.12);
+                color: #FFFFFF;
+                border-radius: 9px;
+                font-size: 9px;
+                font-weight: bold;
+                border: none;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.25);
+            }
+        """)
+        self.btn_clear_search.clicked.connect(self._clear_search)
+        s_layout.addWidget(self.btn_clear_search)
+
+        self.btn_search = QPushButton("Найти", search_card)
+        self.btn_search.setFixedHeight(22)
+        self.btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_search.setStyleSheet("""
             QPushButton {
                 background: #0A84FF;
                 color: #FFFFFF;
                 border-radius: 6px;
                 font-size: 10px;
                 font-weight: bold;
+                padding: 0 8px;
+                border: none;
             }
             QPushButton:hover {
                 background: #0071E3;
             }
         """)
-        self.btn_city_update.clicked.connect(self._on_city_submit)
-        c_layout.addWidget(self.btn_city_update)
+        self.btn_search.clicked.connect(self._on_search_enter)
+        s_layout.addWidget(self.btn_search)
 
-        layout.addWidget(city_card)
+        layout.addWidget(search_card)
 
-        # Main temp row
+        # 2. Autocomplete Results Dropdown List
+        self.list_search_results = QListWidget(w)
+        self.list_search_results.setFixedHeight(120)
+        self.list_search_results.setStyleSheet("""
+            QListWidget {
+                background: rgba(28, 28, 34, 0.98);
+                border: 1px solid rgba(10, 132, 255, 0.50);
+                border-radius: 8px;
+                color: #FFFFFF;
+                font-size: 11px;
+                padding: 2px;
+            }
+            QListWidget::item {
+                padding: 6px;
+                border-radius: 4px;
+            }
+            QListWidget::item:hover {
+                background: rgba(10, 132, 255, 0.35);
+                color: #FFFFFF;
+            }
+            QListWidget::item:selected {
+                background: #0A84FF;
+                color: #FFFFFF;
+            }
+        """)
+        self.list_search_results.itemClicked.connect(self._on_search_item_clicked)
+        self.list_search_results.hide()
+        layout.addWidget(self.list_search_results)
+
+        # 3. Popular City Quick Chips (2 clean rows)
+        chips_frame = QFrame(w)
+        chips_frame.setStyleSheet("background: transparent; border: none;")
+        chips_vbox = QVBoxLayout(chips_frame)
+        chips_vbox.setContentsMargins(0, 0, 0, 0)
+        chips_vbox.setSpacing(4)
+
+        chip_rows = [
+            ["Москва", "СПб", "Новосибирск", "Екб", "Казань"],
+            ["Воронеж", "Сочи", "Краснодар", "Уфа", "Самара"]
+        ]
+        chip_style = """
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                color: rgba(255, 255, 255, 0.88);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 5px;
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+            QPushButton:hover {
+                background: #0A84FF;
+                color: #FFFFFF;
+                border: none;
+            }
+        """
+        for row in chip_rows:
+            r_lay = QHBoxLayout()
+            r_lay.setContentsMargins(0, 0, 0, 0)
+            r_lay.setSpacing(4)
+            for c_name in row:
+                btn_chip = QPushButton(c_name, chips_frame)
+                btn_chip.setFixedHeight(21)
+                btn_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_chip.setStyleSheet(chip_style)
+                btn_chip.clicked.connect(lambda checked, city=c_name: self._select_city(city))
+                r_lay.addWidget(btn_chip)
+            chips_vbox.addLayout(r_lay)
+
+        layout.addWidget(chips_frame)
+
+        # 4. Main Weather Card
+        weather_card = QFrame(w)
+        weather_card.setStyleSheet("background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 12px; padding: 8px;")
+        card_layout = QVBoxLayout(weather_card)
+        card_layout.setContentsMargins(8, 6, 8, 6)
+        card_layout.setSpacing(6)
+
+        # Top row: icon + big temp + city name
         top_row = QHBoxLayout()
-        self.lbl_w_icon = QLabel("⛅", w)
+        self.lbl_w_icon = QLabel("⛅", weather_card)
         self.lbl_w_icon.setStyleSheet("font-size: 34px;")
         top_row.addWidget(self.lbl_w_icon)
 
         temp_col = QVBoxLayout()
-        self.lbl_w_temp = QLabel("+2°C", w)
-        self.lbl_w_temp.setStyleSheet("color: #FFFFFF; font-size: 26px; font-weight: 800;")
-        self.lbl_w_desc = QLabel("Определение погоды...", w)
+        self.lbl_w_temp = QLabel("+2°C", weather_card)
+        self.lbl_w_temp.setStyleSheet("color: #FFFFFF; font-size: 24px; font-weight: 800;")
+        self.lbl_w_desc = QLabel("Определение погоды...", weather_card)
         self.lbl_w_desc.setStyleSheet("color: rgba(255, 255, 255, 0.70); font-size: 11px;")
         temp_col.addWidget(self.lbl_w_temp)
         temp_col.addWidget(self.lbl_w_desc)
         top_row.addLayout(temp_col)
         top_row.addStretch()
-        layout.addLayout(top_row)
+        card_layout.addLayout(top_row)
 
-        # Details Grid
-        grid_card = QFrame(w)
-        grid_card.setStyleSheet("background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 12px; padding: 8px;")
-        grid_layout = QHBoxLayout(grid_card)
-        grid_layout.setContentsMargins(6, 4, 6, 4)
+        # Details Grid: Humidity, Wind, Barometer
+        grid_layout = QHBoxLayout()
+        grid_layout.setContentsMargins(0, 2, 0, 0)
 
-        self.lbl_w_hum = QLabel("💧 Влажность\n--%", grid_card)
-        self.lbl_w_hum.setStyleSheet("color: #FFFFFF; font-size: 11px; text-align: center;")
+        self.lbl_w_hum = QLabel("💧 Влажность\n--%", weather_card)
+        self.lbl_w_hum.setStyleSheet("color: #FFFFFF; font-size: 10px; text-align: center;")
         grid_layout.addWidget(self.lbl_w_hum)
 
-        self.lbl_w_wind = QLabel("💨 Ветер\n-- м/с", grid_card)
-        self.lbl_w_wind.setStyleSheet("color: #FFFFFF; font-size: 11px; text-align: center;")
+        self.lbl_w_wind = QLabel("💨 Ветер\n-- м/с", weather_card)
+        self.lbl_w_wind.setStyleSheet("color: #FFFFFF; font-size: 10px; text-align: center;")
         grid_layout.addWidget(self.lbl_w_wind)
 
-        self.lbl_w_press = QLabel("🧭 Барометр\n754 мм", grid_card)
-        self.lbl_w_press.setStyleSheet("color: #FFFFFF; font-size: 11px; text-align: center;")
+        self.lbl_w_press = QLabel("🧭 Барометр\n754 мм", weather_card)
+        self.lbl_w_press.setStyleSheet("color: #FFFFFF; font-size: 10px; text-align: center;")
         grid_layout.addWidget(self.lbl_w_press)
-        layout.addWidget(grid_card)
+        card_layout.addLayout(grid_layout)
 
-        # 3-Day Forecast Pills
+        layout.addWidget(weather_card)
+
+        # 5. 3-Day Forecast Pills
         forecast_box = QHBoxLayout()
+        forecast_box.setSpacing(6)
         for day, t, ic in [("Сегодня", "+4°", "🌦️"), ("Завтра", "+5°", "🌤️"), ("Вс", "+3°", "⛅")]:
             pill = QFrame(w)
-            pill.setStyleSheet("background: rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 6px;")
+            pill.setStyleSheet("background: rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 4px;")
             p_lay = QVBoxLayout(pill)
             p_lay.setContentsMargins(4, 2, 4, 2)
-            p_lay.setSpacing(2)
+            p_lay.setSpacing(1)
             lbl_d = QLabel(day, pill)
             lbl_d.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 10px;")
             lbl_ic = QLabel(f"{ic} {t}", pill)
@@ -333,12 +481,77 @@ class AppleStatusFlyout(QWidget):
             p_lay.addWidget(lbl_ic, alignment=Qt.AlignmentFlag.AlignCenter)
             forecast_box.addWidget(pill)
         layout.addLayout(forecast_box)
+
+        # Search worker & debounce timer
+        self.search_worker = None
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(280)
+        self.search_timer.timeout.connect(self._execute_search)
+
         return w
 
-    def _on_city_submit(self):
-        new_city = self.input_city.text().strip()
-        if new_city and self.parent_bar:
-            self.parent_bar.set_custom_city(new_city)
+    def _on_search_text_changed(self, text):
+        text = text.strip()
+        if len(text) < 2:
+            self.list_search_results.hide()
+            return
+        self.search_timer.stop()
+        self.search_timer.start()
+
+    def _execute_search(self):
+        query = self.input_search.text().strip()
+        if len(query) < 2:
+            self.list_search_results.hide()
+            return
+        if self.search_worker and self.search_worker.isRunning():
+            self.search_worker.terminate()
+        self.search_worker = CitySearchWorker(query)
+        self.search_worker.results_ready.connect(self._on_search_results_ready)
+        self.search_worker.start()
+
+    def _on_search_results_ready(self, results):
+        self.list_search_results.clear()
+        if not results:
+            item = QListWidgetItem("Ничего не найдено")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.list_search_results.addItem(item)
+            self.list_search_results.show()
+            return
+
+        for r in results:
+            item = QListWidgetItem(f"📍 {r['display']}")
+            item.setData(Qt.ItemDataRole.UserRole, r['name'])
+            self.list_search_results.addItem(item)
+        self.list_search_results.show()
+
+    def _on_search_item_clicked(self, item):
+        city = item.data(Qt.ItemDataRole.UserRole)
+        if city:
+            self._select_city(city)
+
+    def _on_search_enter(self):
+        if self.list_search_results.isVisible() and self.list_search_results.count() > 0:
+            first_item = self.list_search_results.item(0)
+            city = first_item.data(Qt.ItemDataRole.UserRole)
+            if city:
+                self._select_city(city)
+                return
+        text = self.input_search.text().strip()
+        if text:
+            self._select_city(text)
+
+    def _clear_search(self):
+        self.input_search.clear()
+        self.list_search_results.hide()
+
+    def _select_city(self, city_name):
+        mapping = {"СПб": "Санкт-Петербург", "Екб": "Екатеринбург"}
+        target_city = mapping.get(city_name, city_name)
+        self.input_search.setText(target_city)
+        self.list_search_results.hide()
+        if self.parent_bar:
+            self.parent_bar.set_custom_city(target_city)
 
     # -------------------------------------------------------------------------
     # Page 1: Music Player
@@ -754,7 +967,8 @@ class AppleStatusFlyout(QWidget):
             self.update_tasks_view()
         elif tab_idx == 0:
             if self.parent_bar:
-                self.input_city.setText(self.parent_bar.weather_city)
+                self.input_search.setText(self.parent_bar.weather_city)
+                self.list_search_results.hide()
 
         # Position cleanly beneath trigger
         if global_trigger_pos:
@@ -773,12 +987,22 @@ class AppleStatusFlyout(QWidget):
         self.raise_()
 
     def leaveEvent(self, event):
+        if self.input_search.hasFocus() or self.txt_quick_notes.hasFocus():
+            super().leaveEvent(event)
+            return
         cursor = QCursor.pos()
         if not self.rect().contains(self.mapFromGlobal(cursor)):
             if self.parent_bar and not self.parent_bar.geometry().contains(cursor):
                 if hasattr(self.parent_bar, "flyout_leave_timer"):
                     self.parent_bar.flyout_leave_timer.start(350)
         super().leaveEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -805,7 +1029,7 @@ class AppleStatusBar(QWidget):
     - Physical slide-down animation: smoothly slides down into view on hover near top edge.
     - Full contiguous spatial click mapping (zero dead spots).
     - Flyout auto-closes as soon as cursor leaves both the card and the bar.
-    - Real live weather for user's city via wttr.in with city switcher.
+    - Searchable weather engine for any city worldwide with autocomplete.
     - Modules: Weather, Music, PC Telemetry (CPU/RAM), Tools, Date & Clock.
     - Power / AC icon removed.
     """
@@ -976,6 +1200,21 @@ class AppleStatusBar(QWidget):
         self._apply_shadow(self.lbl_clock)
         layout.addWidget(self.lbl_clock)
 
+        # Direct Click Handlers on each label for 100% reliable trigger
+        self.lbl_weather.mousePressEvent = lambda e: self._on_label_click(0, self.lbl_weather, e)
+        self.lbl_music.mousePressEvent = lambda e: self._on_label_click(1, self.lbl_music, e)
+        self.lbl_cpu.mousePressEvent = lambda e: self._on_label_click(2, self.lbl_cpu, e)
+        self.lbl_ram.mousePressEvent = lambda e: self._on_label_click(2, self.lbl_cpu, e)
+        self.lbl_tools.mousePressEvent = lambda e: self._on_label_click(4, self.lbl_tools, e)
+        self.lbl_clock.mousePressEvent = lambda e: self._on_label_click(3, self.lbl_clock, e)
+
+    def _on_label_click(self, tab_idx, trigger_widget, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._open_flyout(tab_idx, trigger_widget)
+            event.accept()
+        else:
+            event.ignore()
+
     def _create_separator(self):
         sep = QFrame(self)
         sep.setFrameShape(QFrame.Shape.VLine)
@@ -1030,10 +1269,10 @@ class AppleStatusBar(QWidget):
             if os.path.exists(cfg):
                 with open(cfg, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    return data.get("city", "Москва")
+                    return data.get("city", "Воронеж")
         except Exception:
             pass
-        return "Москва"
+        return "Воронеж"
 
     def _save_weather_city(self, city: str):
         try:
@@ -1046,6 +1285,8 @@ class AppleStatusBar(QWidget):
     def set_custom_city(self, city: str):
         self.weather_city = city
         self._save_weather_city(city)
+        if hasattr(self, 'flyout') and self.flyout:
+            self.flyout.lbl_w_desc.setText(f"Загрузка для {city}...")
         self._fetch_weather()
 
     def _fetch_weather(self):
@@ -1069,7 +1310,7 @@ class AppleStatusBar(QWidget):
         self.flyout.lbl_w_desc.setText(f"{self.weather_desc} · {self.weather_city}")
         self.flyout.lbl_w_hum.setText(f"💧 Влажность\n{data.get('humidity', '--%')}")
         self.flyout.lbl_w_wind.setText(f"💨 Ветер\n{data.get('wind', '-- м/с')}")
-        self.flyout.input_city.setText(self.weather_city)
+        self.flyout.input_search.setText(self.weather_city)
 
         self._reposition_top_right()
 
@@ -1077,7 +1318,6 @@ class AppleStatusBar(QWidget):
     # Flyout Opening & Auto-Hide
     # -------------------------------------------------------------------------
     def _open_flyout(self, tab_idx, trigger_widget):
-        # Toggle hide if already open on same tab
         if self.flyout.isVisible() and self.flyout.current_tab == tab_idx:
             self.flyout.hide()
             return
@@ -1087,10 +1327,16 @@ class AppleStatusBar(QWidget):
         self.flyout_leave_timer.stop()
         gpos = trigger_widget.mapToGlobal(QPoint(trigger_widget.width() // 2, trigger_widget.height()))
         self.flyout.show_tab(tab_idx, gpos)
+        self.flyout.raise_()
+        self.flyout.activateWindow()
 
     def _on_flyout_leave_timeout(self):
+        if not self.flyout.isVisible():
+            return
+        if self.flyout.input_search.hasFocus() or self.flyout.txt_quick_notes.hasFocus():
+            return
         cursor = QCursor.pos()
-        in_flyout = self.flyout.isVisible() and self.flyout.geometry().contains(cursor)
+        in_flyout = self.flyout.geometry().contains(cursor)
         in_bar = self.geometry().contains(cursor)
         if not (in_flyout or in_bar):
             self.flyout.hide()
