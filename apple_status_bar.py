@@ -1356,6 +1356,12 @@ class AppleStatusBar(QWidget):
         self.weather_timer.timeout.connect(self._fetch_weather)
         self.weather_timer.start()
 
+        # Config watcher (every 3s to sync weather city dynamically)
+        self.config_watcher = QTimer(self)
+        self.config_watcher.setInterval(3000)
+        self.config_watcher.timeout.connect(self._check_city_config_change)
+        self.config_watcher.start()
+
         # Flyout Window
         self.flyout = AppleStatusFlyout(parent_bar=self)
 
@@ -1518,6 +1524,12 @@ class AppleStatusBar(QWidget):
                 json.dump({"city": city}, f, ensure_ascii=False)
         except Exception:
             pass
+
+    def _check_city_config_change(self):
+        new_city = self._load_weather_city()
+        if new_city and new_city != self.weather_city:
+            self.weather_city = new_city
+            self._fetch_weather()
 
     def set_custom_city(self, city: str):
         self.weather_city = city
