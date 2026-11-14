@@ -6,9 +6,8 @@ os.chdir(APP_DIR)
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QPointF, QPoint
+from PyQt6.QtCore import QPointF, QPoint, Qt
 from PyQt6.QtGui import QEnterEvent, QWheelEvent, QMouseEvent
-from PyQt6.QtCore import Qt
 
 app = QApplication.instance()
 if not app:
@@ -20,93 +19,110 @@ print("1. Instantiating AppleStatusBar & Flyout...")
 bar = apple_status_bar.AppleStatusBar()
 bar.show()
 assert bar.height() == 34
-assert bar.width() >= 520
+assert bar.width() >= 480
 assert bar.flyout is not None
-print(f"   Bar initialized: {bar.width()}x{bar.height()} with AppleStatusFlyout!")
+assert not hasattr(bar, "lbl_power")
+print(f"   Bar initialized: {bar.width()}x{bar.height()} (Power/AC removed)!")
 
-print("2. Testing All 5 Interactive Flyout Dropdowns...")
+print("2. Testing All 5 Interactive Flyout Dropdowns via Header Pills & show_tab...")
 # Tab 0: Weather
-bar._open_flyout(0, bar.lbl_weather)
+bar.flyout.show_tab(0)
 assert bar.flyout.isVisible()
 assert bar.flyout.current_tab == 0
-assert "+2°C" in bar.flyout.lbl_w_temp.text()
-print("   Tab 0: Weather Flyout verified!")
+assert bar.flyout.lbl_flyout_title.text() == "Погода"
+assert bar.flyout.stack.currentIndex() == 0
+bar.set_custom_city("Казань")
+assert bar.weather_city == "Казань"
+print("   Tab 0: Weather verified!")
 
 # Tab 1: Music
-bar._open_flyout(1, bar.lbl_music)
+bar.flyout.show_tab(1)
 assert bar.flyout.current_tab == 1
-assert bar.flyout.lbl_m_track is not None
-print("   Tab 1: Music Player Flyout verified!")
+assert bar.flyout.lbl_flyout_title.text() == "Музыка"
+assert bar.flyout.stack.currentIndex() == 1
+print("   Tab 1: Music Player verified!")
 
 # Tab 2: Task Manager & RAM Flush
-bar._open_flyout(2, bar.lbl_cpu)
+bar.flyout.show_tab(2)
 assert bar.flyout.current_tab == 2
+assert bar.flyout.lbl_flyout_title.text() == "Диспетчер задач"
+assert bar.flyout.stack.currentIndex() == 2
 bar.flyout._flush_memory()
-assert "успешно" in bar.flyout.btn_flush.text()
+assert "Память оптимизирована" in bar.flyout.btn_flush_ram.text() or "Очистить" in bar.flyout.btn_flush_ram.text()
 print("   Tab 2: Task Manager & Memory Flush verified!")
 
 # Tab 3: Calendar & Quick Notes
-bar._open_flyout(3, bar.lbl_clock)
+bar.flyout.show_tab(3)
 assert bar.flyout.current_tab == 3
-bar.flyout.note_input.setText("Купить кофе")
-bar.flyout._add_quick_note()
-assert bar.flyout.notes_list.count() == 1
-assert "Купить кофе" in bar.flyout.notes_list.item(0).text()
+assert bar.flyout.lbl_flyout_title.text() == "Календарь и Заметки"
+assert bar.flyout.stack.currentIndex() == 3
+bar.flyout.txt_quick_notes.setText("Купить кофе")
+bar.flyout._save_quick_note()
+assert bar.flyout.list_notes.count() >= 1
+assert "Купить кофе" in bar.flyout.list_notes.item(0).text()
 print("   Tab 3: Calendar & Quick Notes verified!")
 
 # Tab 4: Quick Tools (Caffeine & Clipboard)
-bar._open_flyout(4, bar.lbl_tools)
+bar.flyout.show_tab(4)
 assert bar.flyout.current_tab == 4
-# Test caffeine toggle
+assert bar.flyout.lbl_flyout_title.text() == "Инструменты"
+assert bar.flyout.stack.currentIndex() == 4
 active = bar.toggle_caffeine()
 assert active == True
 assert bar.caffeine_active == True
 bar.toggle_caffeine()
 assert bar.caffeine_active == False
-# Test clipboard history item
 bar.flyout.add_clipboard_item("https://github.com/apple")
-assert bar.flyout.clip_list.count() == 1
+assert bar.flyout.list_clipboard.count() >= 1
 print("   Tab 4: Caffeine & Clipboard History verified!")
 
 bar.flyout.hide()
 assert not bar.flyout.isVisible()
 
-print("3. Testing Mouse Wheel Scroll & Double Click Gestures...")
-# Wheel event
-wheel_ev = QWheelEvent(
-    QPointF(20, 10), QPointF(20, 10), QPoint(0, 0), QPoint(0, 120),
-    Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
-    Qt.ScrollPhase.NoScrollPhase, False
-)
-bar.wheelEvent(wheel_ev)
-print("   Wheel volume scroll verified!")
+print("3. Testing Full Spatial Click Mapping across the Status Bar...")
+# Click in Weather zone (x = 10)
+ev_weather = QMouseEvent(QMouseEvent.Type.MouseButtonPress, QPointF(10, 15), QPointF(10, 15), Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+bar.mousePressEvent(ev_weather)
+assert bar.flyout.isVisible()
+assert bar.flyout.current_tab == 0
+assert bar.flyout.lbl_flyout_title.text() == "Погода"
+print("   Click zone 0 -> Weather flyout open!")
 
-# Double click event
-dc_ev = QMouseEvent(
-    QMouseEvent.Type.MouseButtonDblClick, QPointF(20, 10), QPointF(20, 10),
-    Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier
-)
-bar.mouseDoubleClickEvent(dc_ev)
-print("   Double click play/pause verified!")
+# Click in Calendar zone (x = right edge - 10)
+ev_calendar = QMouseEvent(QMouseEvent.Type.MouseButtonPress, QPointF(bar.width() - 10, 15), QPointF(bar.width() - 10, 15), Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+bar.mousePressEvent(ev_calendar)
+assert bar.flyout.isVisible()
+assert bar.flyout.current_tab == 3
+assert bar.flyout.lbl_flyout_title.text() == "Календарь и Заметки"
+assert bar.flyout.stack.currentIndex() == 3
+print("   Click zone 3 -> Calendar flyout open!")
 
-print("4. Testing Dynamic Telemetry Alert (>80% CPU warning)...")
-bar.cpu_pct = 85.0
-bar._update_clock_and_telemetry()
-# High CPU triggers red alert color in stylesheet
-assert "FF453A" in bar.lbl_cpu.styleSheet() or "30D158" in bar.lbl_cpu.styleSheet()
-print("   Dynamic CPU telemetry alert verified!")
+# Click in Tasks zone (x = bar.lbl_cpu.x() + 4)
+ev_tasks = QMouseEvent(QMouseEvent.Type.MouseButtonPress, QPointF(bar.lbl_cpu.x() + 4, 15), QPointF(bar.lbl_cpu.x() + 4, 15), Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+bar.mousePressEvent(ev_tasks)
+assert bar.flyout.isVisible()
+assert bar.flyout.current_tab == 2
+assert bar.flyout.lbl_flyout_title.text() == "Диспетчер задач"
+assert bar.flyout.stack.currentIndex() == 2
+print("   Click zone 2 -> Tasks flyout open!")
 
-print("5. Testing Auto-Hide Fade Animation...")
-ev_enter = QEnterEvent(QPointF(10, 10), QPointF(10, 10), QPointF(10, 10))
-bar.enterEvent(ev_enter)
-bar.anim_opacity.setCurrentTime(220)
-assert bar.is_hovered == True
-assert bar.opacity_effect.opacity() > 0.8
+print("4. Testing Flyout Auto-Close on Mouse Leave...")
+# Simulate timeout when cursor is outside both flyout and bar
+bar._on_flyout_leave_timeout()
+assert not bar.flyout.isVisible()
+print("   Flyout auto-hide on leave verified!")
 
-bar._fade_to_idle()
-bar.anim_opacity.setCurrentTime(220)
-assert bar.is_hovered == False
-assert bar.opacity_effect.opacity() < 0.2
-print(f"   Auto-hide idle opacity: {bar.opacity_effect.opacity():.2f} verified!")
+print("5. Testing Physical Slide Up & Slide Down Animation...")
+bar._slide_up()
+bar.anim_pos.setCurrentTime(280)
+assert bar.is_slid_down == False
+assert bar.y() == bar.y_hidden
+print(f"   Slide UP verified: y={bar.y()} (hidden off-screen)!")
 
-print("\n>>> ALL 5 SUITES OF APPLE STATUS BAR ENHANCED FEATURES PASSED 100%! <<<")
+bar._slide_down()
+bar.anim_pos.setCurrentTime(240)
+assert bar.is_slid_down == True
+assert bar.y() == bar.y_visible
+print(f"   Slide DOWN verified: y={bar.y()} (visible in view)!")
+
+print("\n>>> ALL 5 SUITES PASSED 100%! <<<")

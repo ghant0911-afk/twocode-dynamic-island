@@ -4,17 +4,22 @@ import psutil
 import datetime
 import ctypes
 import json
+import urllib.request
+import urllib.parse
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame,
     QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QPushButton,
-    QProgressBar, QScrollArea, QLineEdit, QListWidget, QListWidgetItem, QStackedWidget
+    QProgressBar, QScrollArea, QLineEdit, QListWidget, QListWidgetItem,
+    QStackedWidget, QMenu
 )
 from PyQt6.QtCore import (
-    Qt, QPoint, QRectF, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal
+    Qt, QPoint, QRectF, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal,
+    QThread
 )
 from PyQt6.QtGui import (
-    QPainter, QColor, QPen, QBrush, QPainterPath, QFont, QCursor, QWheelEvent, QMouseEvent
+    QPainter, QColor, QPen, QBrush, QPainterPath, QFont, QCursor, QWheelEvent,
+    QMouseEvent, QAction
 )
 
 # Win32 Virtual Keys
@@ -25,7 +30,7 @@ VK_MEDIA_NEXT_TRACK = 0xB0
 VK_MEDIA_PREV_TRACK = 0xB1
 VK_MEDIA_PLAY_PAUSE = 0xB3
 
-# Win32 Thread Execution State (Caffeine)
+# Win32 Thread Execution State (Caffeine Mode)
 ES_CONTINUOUS = 0x80000000
 ES_SYSTEM_REQUIRED = 0x00000001
 ES_DISPLAY_REQUIRED = 0x00000002
@@ -40,11 +45,84 @@ except Exception:
     HAS_MEDIA = False
 
 
+class WeatherWorker(QThread):
+    """
+    Background worker that detects user city via IP geolocation
+    and queries live weather from wttr.in without blocking the UI.
+    """
+    weather_fetched = pyqtSignal(dict)
+
+    def __init__(self, city=""):
+        super().__init__()
+        self.city = city.strip()
+
+    def run(self):
+        target_city = self.city
+        if not target_city:
+            try:
+                req = urllib.request.Request('http://ip-api.com/json', headers={'User-Agent': 'curl/7.68.0'})
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    target_city = data.get('city', 'Moscow')
+            except Exception:
+                target_city = "Moscow"
+
+        city_display = target_city
+        if target_city.lower() in ("moscow", "москва"):
+            city_display = "Москва"
+        elif target_city.lower() in ("saint petersburg", "санкт-петербург", "spb"):
+            city_display = "Санкт-Петербург"
+        elif target_city.lower() in ("novosibirsk", "новосибирск"):
+            city_display = "Новосибирск"
+        elif target_city.lower() in ("ekaterinburg", "екатеринбург"):
+            city_display = "Екатеринбург"
+        elif target_city.lower() in ("kazan", "казань"):
+            city_display = "Казань"
+
+        encoded = urllib.parse.quote(target_city)
+        url = f"https://wttr.in/{encoded}?format=%c;%t;%C;%h;%w&lang=ru"
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'curl/7.68.0'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                raw = resp.read().decode('utf-8').strip()
+                parts = raw.split(';')
+                if len(parts) >= 3:
+                    icon = parts[0].strip() or "⛅"
+                    temp = parts[1].strip() or "+2°C"
+                    desc = parts[2].strip() or "Ясно"
+                    hum = parts[3].strip() if len(parts) > 3 else "70%"
+                    wind = parts[4].strip() if len(parts) > 4 else "3.0 м/с"
+                    self.weather_fetched.emit({
+                        "city": city_display,
+                        "raw_city": target_city,
+                        "icon": icon,
+                        "temp": temp,
+                        "desc": desc,
+                        "humidity": hum,
+                        "wind": wind,
+                        "success": True
+                    })
+                    return
+        except Exception:
+            pass
+
+        self.weather_fetched.emit({
+            "city": city_display,
+            "raw_city": target_city,
+            "icon": "⛅",
+            "temp": "+2°C",
+            "desc": "Облачно",
+            "humidity": "74%",
+            "wind": "3.2 м/с",
+            "success": False
+        })
+
+
 class AppleStatusFlyout(QWidget):
     """
     Apple macOS-grade Frosted Glass Dropdown Flyout.
     Contains 5 modular views:
-    0: Weather & Forecast
+    0: Weather & City Forecast
     1: Apple Music Controller
     2: Mini Task Manager (Top Processes & RAM Flush)
     3: Calendar & Quick Notes
@@ -63,7 +141,6 @@ class AppleStatusFlyout(QWidget):
             Qt.WindowType.WindowDoesNotAcceptFocus
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self.setFixedWidth(340)
@@ -83,15 +160,27 @@ class AppleStatusFlyout(QWidget):
         main_layout.setContentsMargins(14, 14, 14, 14)
         main_layout.setSpacing(10)
 
-        # Header with navigation
+        # Header with Navigation & Tab Switch Pills
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(6)
 
         self.lbl_flyout_title = QLabel("Погода", self)
         self.lbl_flyout_title.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: 700; font-family: 'Segoe UI', sans-serif;")
         header_layout.addWidget(self.lbl_flyout_title)
 
         header_layout.addStretch()
+
+        # Direct Tab Switch Pills in the Header
+        self.tab_pills = []
+        pill_items = [("⛅", 0), ("🎵", 1), ("⚡", 2), ("📅", 3), ("☕", 4)]
+        for ic, idx in pill_items:
+            btn = QPushButton(ic, self)
+            btn.setFixedSize(26, 22)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda checked, t=idx: self.show_tab(t))
+            self.tab_pills.append(btn)
+            header_layout.addWidget(btn)
 
         self.btn_close = QPushButton("✕", self)
         self.btn_close.setFixedSize(22, 22)
@@ -137,6 +226,15 @@ class AppleStatusFlyout(QWidget):
         self.page_tools = self._create_tools_page()
         self.stack.addWidget(self.page_tools)
 
+        self._update_tab_pills(0)
+
+    def _update_tab_pills(self, active_idx):
+        for idx, btn in enumerate(self.tab_pills):
+            if idx == active_idx:
+                btn.setStyleSheet("background: #0A84FF; color: #FFFFFF; border-radius: 6px; font-size: 11px; font-weight: bold; border: none;")
+            else:
+                btn.setStyleSheet("background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.7); border-radius: 6px; font-size: 11px; border: 1px solid rgba(255, 255, 255, 0.12);")
+
     # -------------------------------------------------------------------------
     # Page 0: Weather
     # -------------------------------------------------------------------------
@@ -146,16 +244,54 @@ class AppleStatusFlyout(QWidget):
         layout.setContentsMargins(0, 6, 0, 6)
         layout.setSpacing(10)
 
+        # City input selector
+        city_card = QFrame(w)
+        city_card.setStyleSheet("background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 2px;")
+        c_layout = QHBoxLayout(city_card)
+        c_layout.setContentsMargins(8, 2, 6, 2)
+        c_layout.setSpacing(6)
+
+        lbl_pin = QLabel("📍", city_card)
+        lbl_pin.setStyleSheet("font-size: 12px;")
+        c_layout.addWidget(lbl_pin)
+
+        self.input_city = QLineEdit(city_card)
+        self.input_city.setPlaceholderText("Город (напр. Москва, Казань)...")
+        self.input_city.setStyleSheet("background: transparent; color: #FFFFFF; border: none; font-size: 11px; font-weight: 600;")
+        self.input_city.returnPressed.connect(self._on_city_submit)
+        c_layout.addWidget(self.input_city)
+
+        self.btn_city_update = QPushButton("OK", city_card)
+        self.btn_city_update.setFixedSize(32, 22)
+        self.btn_city_update.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_city_update.setStyleSheet("""
+            QPushButton {
+                background: #0A84FF;
+                color: #FFFFFF;
+                border-radius: 6px;
+                font-size: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #0071E3;
+            }
+        """)
+        self.btn_city_update.clicked.connect(self._on_city_submit)
+        c_layout.addWidget(self.btn_city_update)
+
+        layout.addWidget(city_card)
+
+        # Main temp row
         top_row = QHBoxLayout()
-        icon = QLabel("⛅", w)
-        icon.setStyleSheet("font-size: 34px;")
-        top_row.addWidget(icon)
+        self.lbl_w_icon = QLabel("⛅", w)
+        self.lbl_w_icon.setStyleSheet("font-size: 34px;")
+        top_row.addWidget(self.lbl_w_icon)
 
         temp_col = QVBoxLayout()
         self.lbl_w_temp = QLabel("+2°C", w)
         self.lbl_w_temp.setStyleSheet("color: #FFFFFF; font-size: 26px; font-weight: 800;")
-        self.lbl_w_desc = QLabel("Переменная облачность · Москва", w)
-        self.lbl_w_desc.setStyleSheet("color: rgba(255, 255, 255, 0.65); font-size: 11px;")
+        self.lbl_w_desc = QLabel("Определение погоды...", w)
+        self.lbl_w_desc.setStyleSheet("color: rgba(255, 255, 255, 0.70); font-size: 11px;")
         temp_col.addWidget(self.lbl_w_temp)
         temp_col.addWidget(self.lbl_w_desc)
         top_row.addLayout(temp_col)
@@ -168,22 +304,22 @@ class AppleStatusFlyout(QWidget):
         grid_layout = QHBoxLayout(grid_card)
         grid_layout.setContentsMargins(6, 4, 6, 4)
 
-        d1 = QLabel("💧 Влажность\n74%", grid_card)
-        d1.setStyleSheet("color: #FFFFFF; font-size: 11px; text-align: center;")
-        grid_layout.addWidget(d1)
+        self.lbl_w_hum = QLabel("💧 Влажность\n--%", grid_card)
+        self.lbl_w_hum.setStyleSheet("color: #FFFFFF; font-size: 11px; text-align: center;")
+        grid_layout.addWidget(self.lbl_w_hum)
 
-        d2 = QLabel("💨 Ветер\n3.2 м/с", grid_card)
-        d2.setStyleSheet("color: #FFFFFF; font-size: 11px; text-align: center;")
-        grid_layout.addWidget(d2)
+        self.lbl_w_wind = QLabel("💨 Ветер\n-- м/с", grid_card)
+        self.lbl_w_wind.setStyleSheet("color: #FFFFFF; font-size: 11px; text-align: center;")
+        grid_layout.addWidget(self.lbl_w_wind)
 
-        d3 = QLabel("🧭 Давление\n752 мм", grid_card)
-        d3.setStyleSheet("color: #FFFFFF; font-size: 11px; text-align: center;")
-        grid_layout.addWidget(d3)
+        self.lbl_w_press = QLabel("🧭 Барометр\n754 мм", grid_card)
+        self.lbl_w_press.setStyleSheet("color: #FFFFFF; font-size: 11px; text-align: center;")
+        grid_layout.addWidget(self.lbl_w_press)
         layout.addWidget(grid_card)
 
         # 3-Day Forecast Pills
         forecast_box = QHBoxLayout()
-        for day, t, ic in [("Сегодня", "+2°", "⛅"), ("Завтра", "+4°", "🌤️"), ("Пн", "+1°", "🌧️")]:
+        for day, t, ic in [("Сегодня", "+4°", "🌦️"), ("Завтра", "+5°", "🌤️"), ("Вс", "+3°", "⛅")]:
             pill = QFrame(w)
             pill.setStyleSheet("background: rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 6px;")
             p_lay = QVBoxLayout(pill)
@@ -199,6 +335,11 @@ class AppleStatusFlyout(QWidget):
         layout.addLayout(forecast_box)
         return w
 
+    def _on_city_submit(self):
+        new_city = self.input_city.text().strip()
+        if new_city and self.parent_bar:
+            self.parent_bar.set_custom_city(new_city)
+
     # -------------------------------------------------------------------------
     # Page 1: Music Player
     # -------------------------------------------------------------------------
@@ -211,63 +352,87 @@ class AppleStatusFlyout(QWidget):
         # Track Info Card
         track_card = QFrame(w)
         track_card.setStyleSheet("background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 12px; padding: 10px;")
-        t_lay = QHBoxLayout(track_card)
-        t_lay.setContentsMargins(8, 6, 8, 6)
-        t_lay.setSpacing(10)
+        t_lay = QVBoxLayout(track_card)
+        t_lay.setSpacing(4)
 
-        art_lbl = QLabel("🎵", track_card)
-        art_lbl.setFixedSize(42, 42)
-        art_lbl.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0A84FF, stop:1 #5E5CE6); border-radius: 8px; font-size: 18px;")
-        art_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        t_lay.addWidget(art_lbl)
-
-        info_col = QVBoxLayout()
-        info_col.setSpacing(2)
         self.lbl_m_track = QLabel("Нет активного трека", track_card)
-        self.lbl_m_track.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700;")
-        self.lbl_m_artist = QLabel("Запустите Яндекс.Музыку, Spotify или YouTube", track_card)
-        self.lbl_m_artist.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 10px;")
-        info_col.addWidget(self.lbl_m_track)
-        info_col.addWidget(self.lbl_m_artist)
-        t_lay.addLayout(info_col)
+        self.lbl_m_track.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: 700;")
+        t_lay.addWidget(self.lbl_m_track)
+
+        self.lbl_m_artist = QLabel("Воспроизведите музыку в любом приложении", track_card)
+        self.lbl_m_artist.setStyleSheet("color: rgba(255, 255, 255, 0.65); font-size: 11px;")
+        t_lay.addWidget(self.lbl_m_artist)
+
+        self.progress_music = QProgressBar(track_card)
+        self.progress_music.setFixedHeight(4)
+        self.progress_music.setTextVisible(False)
+        self.progress_music.setValue(35)
+        self.progress_music.setStyleSheet("""
+            QProgressBar {
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 2px;
+                border: none;
+            }
+            QProgressBar::chunk {
+                background: #0A84FF;
+                border-radius: 2px;
+            }
+        """)
+        t_lay.addWidget(self.progress_music)
         layout.addWidget(track_card)
 
-        # Playback Controls
-        ctrls_layout = QHBoxLayout()
-        ctrls_layout.setSpacing(14)
-        ctrls_layout.addStretch()
+        # Controls
+        ctrl_layout = QHBoxLayout()
+        ctrl_layout.setSpacing(12)
 
-        btn_prev = QPushButton("⏮", w)
-        btn_prev.setFixedSize(32, 32)
-        btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_prev.setStyleSheet("background: rgba(255, 255, 255, 0.10); color: white; border-radius: 16px; border: none; font-size: 13px;")
-        btn_prev.clicked.connect(lambda: self._send_media_key(VK_MEDIA_PREV_TRACK))
-        ctrls_layout.addWidget(btn_prev)
-
+        self.btn_prev = QPushButton("⏮", w)
         self.btn_play = QPushButton("▶", w)
-        self.btn_play.setFixedSize(40, 40)
-        self.btn_play.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_play.setStyleSheet("background: #0A84FF; color: white; border-radius: 20px; border: none; font-size: 16px; font-weight: bold;")
-        self.btn_play.clicked.connect(lambda: self._send_media_key(VK_MEDIA_PLAY_PAUSE))
-        ctrls_layout.addWidget(self.btn_play)
+        self.btn_next = QPushButton("⏭", w)
 
-        btn_next = QPushButton("⏭", w)
-        btn_next.setFixedSize(32, 32)
-        btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_next.setStyleSheet("background: rgba(255, 255, 255, 0.10); color: white; border-radius: 16px; border: none; font-size: 13px;")
-        btn_next.clicked.connect(lambda: self._send_media_key(VK_MEDIA_NEXT_TRACK))
-        ctrls_layout.addWidget(btn_next)
+        for btn in (self.btn_prev, self.btn_play, self.btn_next):
+            btn.setFixedSize(36, 36)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.12);
+                    color: #FFFFFF;
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                    border-radius: 18px;
+                    font-size: 14px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.25);
+                }
+            """)
 
-        ctrls_layout.addStretch()
-        layout.addLayout(ctrls_layout)
+        self.btn_play.setFixedSize(44, 44)
+        self.btn_play.setStyleSheet("""
+            QPushButton {
+                background: #0A84FF;
+                color: #FFFFFF;
+                border-radius: 22px;
+                font-size: 18px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #0071E3;
+            }
+        """)
+
+        self.btn_prev.clicked.connect(lambda: user32.keybd_event(VK_MEDIA_PREV_TRACK, 0, 0, 0))
+        self.btn_play.clicked.connect(lambda: user32.keybd_event(VK_MEDIA_PLAY_PAUSE, 0, 0, 0))
+        self.btn_next.clicked.connect(lambda: user32.keybd_event(VK_MEDIA_NEXT_TRACK, 0, 0, 0))
+
+        ctrl_layout.addStretch()
+        ctrl_layout.addWidget(self.btn_prev)
+        ctrl_layout.addWidget(self.btn_play)
+        ctrl_layout.addWidget(self.btn_next)
+        ctrl_layout.addStretch()
+        layout.addLayout(ctrl_layout)
         return w
 
-    def _send_media_key(self, vk):
-        user32.keybd_event(vk, 0, 0, 0)
-        user32.keybd_event(vk, 0, 2, 0)
-
     # -------------------------------------------------------------------------
-    # Page 2: Mini Task Manager & Memory Flush
+    # Page 2: Mini Task Manager
     # -------------------------------------------------------------------------
     def _create_tasks_page(self):
         w = QWidget()
@@ -275,81 +440,91 @@ class AppleStatusFlyout(QWidget):
         layout.setContentsMargins(0, 6, 0, 6)
         layout.setSpacing(8)
 
-        # Overview Bars
-        self.bar_cpu = QProgressBar(w)
-        self.bar_cpu.setFixedHeight(12)
-        self.bar_cpu.setTextVisible(False)
-        self.bar_cpu.setStyleSheet("QProgressBar { background: rgba(255,255,255,0.1); border-radius: 6px; } QProgressBar::chunk { background: #30D158; border-radius: 6px; }")
-        layout.addWidget(QLabel("Загрузка CPU:", w))
-        layout.addWidget(self.bar_cpu)
+        # Overview Stats
+        stats_card = QFrame(w)
+        stats_card.setStyleSheet("background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 12px; padding: 8px;")
+        s_lay = QHBoxLayout(stats_card)
 
-        self.bar_ram = QProgressBar(w)
-        self.bar_ram.setFixedHeight(12)
-        self.bar_ram.setTextVisible(False)
-        self.bar_ram.setStyleSheet("QProgressBar { background: rgba(255,255,255,0.1); border-radius: 6px; } QProgressBar::chunk { background: #64D2FF; border-radius: 6px; }")
-        layout.addWidget(QLabel("Загрузка RAM:", w))
-        layout.addWidget(self.bar_ram)
+        self.lbl_task_cpu = QLabel("CPU: 0%", stats_card)
+        self.lbl_task_cpu.setStyleSheet("color: #30D158; font-weight: bold; font-size: 12px;")
+        s_lay.addWidget(self.lbl_task_cpu)
 
-        # Top Processes List
-        layout.addWidget(QLabel("Топ-3 процессов по нагрузке:", w))
-        self.lbl_procs = QLabel("Загрузка...", w)
-        self.lbl_procs.setStyleSheet("color: rgba(255, 255, 255, 0.85); font-size: 11px; font-family: 'Consolas', monospace;")
-        layout.addWidget(self.lbl_procs)
+        self.lbl_task_ram = QLabel("RAM: 0%", stats_card)
+        self.lbl_task_ram.setStyleSheet("color: #64D2FF; font-weight: bold; font-size: 12px;")
+        s_lay.addWidget(self.lbl_task_ram)
 
-        # Flush Button
-        self.btn_flush = QPushButton("🧹 Очистить кэш RAM", w)
-        self.btn_flush.setFixedHeight(30)
-        self.btn_flush.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_flush.setStyleSheet("""
+        layout.addWidget(stats_card)
+
+        # Process List
+        self.list_procs = QListWidget(w)
+        self.list_procs.setFixedHeight(120)
+        self.list_procs.setStyleSheet("""
+            QListWidget {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+                color: #FFFFFF;
+                font-size: 11px;
+                padding: 4px;
+            }
+            QListWidget::item {
+                padding: 4px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            }
+        """)
+        layout.addWidget(self.list_procs)
+
+        # Action: Flush RAM
+        self.btn_flush_ram = QPushButton("⚡ Очистить кэш RAM", w)
+        self.btn_flush_ram.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_flush_ram.setStyleSheet("""
             QPushButton {
                 background: rgba(48, 209, 88, 0.20);
                 color: #30D158;
                 border: 1px solid rgba(48, 209, 88, 0.40);
                 border-radius: 10px;
+                padding: 8px;
+                font-weight: bold;
                 font-size: 11px;
-                font-weight: 700;
             }
             QPushButton:hover {
                 background: rgba(48, 209, 88, 0.35);
             }
         """)
-        self.btn_flush.clicked.connect(self._flush_memory)
-        layout.addWidget(self.btn_flush)
+        self.btn_flush_ram.clicked.connect(self._flush_memory)
+        layout.addWidget(self.btn_flush_ram)
         return w
 
     def _flush_memory(self):
-        import gc
-        gc.collect()
-        self.btn_flush.setText("✓ Кэш RAM успешно сброшен!")
-        QTimer.singleShot(2500, lambda: self.btn_flush.setText("🧹 Очистить кэш RAM"))
-
-    def update_task_manager(self):
         try:
-            c = psutil.cpu_percent()
-            r = psutil.virtual_memory().percent
-            self.bar_cpu.setValue(int(c))
-            self.bar_ram.setValue(int(r))
-
-            # Fetch top processes safely
-            procs = []
-            for p in psutil.process_iter(['name', 'cpu_percent', 'memory_percent']):
-                try:
-                    procs.append(p.info)
-                except Exception:
-                    pass
-            top_cpu = sorted(procs, key=lambda x: (x.get('cpu_percent') or 0.0), reverse=True)[:3]
-            txt_lines = []
-            for p in top_cpu:
-                name = p.get('name') or 'Proc'
-                cpu = p.get('cpu_percent') or 0.0
-                mem = p.get('memory_percent') or 0.0
-                txt_lines.append(f"• {name[:16]:<16} {cpu:4.1f}% CPU | {mem:4.1f}% RAM")
-            self.lbl_procs.setText("\n".join(txt_lines) if txt_lines else "Нет активных процессов")
+            import gc
+            gc.collect()
+            kernel32.SetProcessWorkingSetSize(-1, -1, -1)
+            self.btn_flush_ram.setText("✓ Память оптимизирована!")
+            QTimer.singleShot(1500, lambda: self.btn_flush_ram.setText("⚡ Очистить кэш RAM"))
         except Exception as e:
-            self.lbl_procs.setText(f"Опрос: {e}")
+            self.btn_flush_ram.setText(f"Ошибка: {e}")
+
+    def update_tasks_view(self):
+        cpu = psutil.cpu_percent()
+        ram = psutil.virtual_memory().percent
+        self.lbl_task_cpu.setText(f"CPU: {int(cpu)}%")
+        self.lbl_task_ram.setText(f"RAM: {int(ram)}%")
+
+        self.list_procs.clear()
+        procs = []
+        for p in psutil.process_iter(['name', 'memory_percent']):
+            try:
+                procs.append((p.info['name'] or 'process', p.info['memory_percent'] or 0.0))
+            except Exception:
+                pass
+        procs.sort(key=lambda x: x[1], reverse=True)
+        for name, m_pct in procs[:5]:
+            item = QListWidgetItem(f"{name[:20]:<20} · {m_pct:.1f}% RAM")
+            self.list_procs.addItem(item)
 
     # -------------------------------------------------------------------------
-    # Page 3: Calendar & Quick Notes
+    # Page 3: Calendar & Notes
     # -------------------------------------------------------------------------
     def _create_calendar_page(self):
         w = QWidget()
@@ -358,30 +533,79 @@ class AppleStatusFlyout(QWidget):
         layout.setSpacing(8)
 
         now = datetime.datetime.now()
-        lbl_date_header = QLabel(f"📅 {now.strftime('%d.%m.%Y')} — Быстрые заметки", w)
-        lbl_date_header.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: bold;")
+        lbl_date_header = QLabel(now.strftime("%B %Y").capitalize(), w)
+        lbl_date_header.setStyleSheet("color: #FFFFFF; font-size: 14px; font-weight: bold;")
         layout.addWidget(lbl_date_header)
 
-        self.note_input = QLineEdit(w)
-        self.note_input.setPlaceholderText("Добавить заметку на сегодня (Enter)...")
-        self.note_input.setStyleSheet("background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; color: white; padding: 6px; font-size: 11px;")
-        self.note_input.returnPressed.connect(self._add_quick_note)
-        layout.addWidget(self.note_input)
+        # Quick Note Box
+        lbl_note_title = QLabel("Быстрые заметки:", w)
+        lbl_note_title.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        layout.addWidget(lbl_note_title)
 
-        self.notes_list = QListWidget(w)
-        self.notes_list.setFixedHeight(120)
-        self.notes_list.setStyleSheet("background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; color: #FFFFFF; font-size: 11px; padding: 4px;")
-        layout.addWidget(self.notes_list)
+        self.txt_quick_notes = QLineEdit(w)
+        self.txt_quick_notes.setPlaceholderText("Нажмите Enter чтобы сохранить...")
+        self.txt_quick_notes.setStyleSheet("""
+            QLineEdit {
+                background: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                color: #FFFFFF;
+                padding: 6px;
+                font-size: 11px;
+            }
+        """)
+        self.txt_quick_notes.returnPressed.connect(self._save_quick_note)
+        layout.addWidget(self.txt_quick_notes)
+
+        self.list_notes = QListWidget(w)
+        self.list_notes.setFixedHeight(110)
+        self.list_notes.setStyleSheet("""
+            QListWidget {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+                color: #FFFFFF;
+                font-size: 11px;
+            }
+            QListWidget::item {
+                padding: 4px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            }
+        """)
+        layout.addWidget(self.list_notes)
+        self._load_cached_notes()
         return w
 
-    def _add_quick_note(self):
-        text = self.note_input.text().strip()
+    def _save_quick_note(self):
+        text = self.txt_quick_notes.text().strip()
         if text:
-            self.notes_list.addItem(f"✓ {text}")
-            self.note_input.clear()
+            time_str = datetime.datetime.now().strftime("%H:%M")
+            self.list_notes.insertItem(0, f"• [{time_str}] {text}")
+            self.txt_quick_notes.clear()
+            self._save_cached_notes()
+
+    def _load_cached_notes(self):
+        try:
+            cache_file = os.path.join(os.path.dirname(__file__), "notes_cache.json")
+            if os.path.exists(cache_file):
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    notes = json.load(f)
+                    for n in notes[:10]:
+                        self.list_notes.addItem(n)
+        except Exception:
+            pass
+
+    def _save_cached_notes(self):
+        try:
+            cache_file = os.path.join(os.path.dirname(__file__), "notes_cache.json")
+            notes = [self.list_notes.item(i).text() for i in range(self.list_notes.count())]
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(notes[:20], f, ensure_ascii=False)
+        except Exception:
+            pass
 
     # -------------------------------------------------------------------------
-    # Page 4: Quick Tools (Caffeine & Clipboard)
+    # Page 4: Tools & Clipboard
     # -------------------------------------------------------------------------
     def _create_tools_page(self):
         w = QWidget()
@@ -389,108 +613,208 @@ class AppleStatusFlyout(QWidget):
         layout.setContentsMargins(0, 6, 0, 6)
         layout.setSpacing(10)
 
-        # Caffeine Toggle
-        self.btn_caffeine = QPushButton("☕ Режим 'Не спать' (Экран включён)", w)
-        self.btn_caffeine.setFixedHeight(32)
-        self.btn_caffeine.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_caffeine.setStyleSheet("background: rgba(255, 255, 255, 0.08); color: white; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; font-size: 11px; font-weight: 600;")
-        self.btn_caffeine.clicked.connect(self._toggle_caffeine)
-        layout.addWidget(self.btn_caffeine)
+        # Quick Actions Grid
+        grid = QHBoxLayout()
+        grid.setSpacing(8)
 
-        # Snipping Tool
-        btn_snip = QPushButton("✂ Сделать скриншот области (Snipping Tool)", w)
-        btn_snip.setFixedHeight(30)
-        btn_snip.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_snip.setStyleSheet("background: rgba(255, 255, 255, 0.08); color: white; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; font-size: 11px;")
-        btn_snip.clicked.connect(lambda: os.system("start ms-screenclip:"))
-        layout.addWidget(btn_snip)
+        self.btn_caffeine = QPushButton("☕ Не спать: Выкл", w)
+        self.btn_caffeine.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_caffeine.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                padding: 8px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.18);
+            }
+        """)
+        self.btn_caffeine.clicked.connect(self._toggle_caffeine_click)
+        grid.addWidget(self.btn_caffeine)
+
+        self.btn_snip = QPushButton("✂️ Ножницы", w)
+        self.btn_snip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_snip.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                padding: 8px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.18);
+            }
+        """)
+        self.btn_snip.clicked.connect(self._open_snipping_tool)
+        grid.addWidget(self.btn_snip)
+        layout.addLayout(grid)
 
         # Clipboard History Header
-        layout.addWidget(QLabel("📋 Буфер обмена (последнее скопированное):", w))
-        self.clip_list = QListWidget(w)
-        self.clip_list.setFixedHeight(95)
-        self.clip_list.setStyleSheet("background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; color: #FFFFFF; font-size: 11px;")
-        self.clip_list.itemClicked.connect(self._copy_back_to_clipboard)
-        layout.addWidget(self.clip_list)
+        lbl_clip = QLabel("📋 Последние скопированные элементы:", w)
+        lbl_clip.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 11px;")
+        layout.addWidget(lbl_clip)
+
+        self.list_clipboard = QListWidget(w)
+        self.list_clipboard.setFixedHeight(120)
+        self.list_clipboard.setStyleSheet("""
+            QListWidget {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+                color: #FFFFFF;
+                font-size: 11px;
+            }
+            QListWidget::item {
+                padding: 4px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            }
+            QListWidget::item:hover {
+                background: rgba(255, 255, 255, 0.10);
+            }
+        """)
+        self.list_clipboard.itemClicked.connect(self._copy_item_back)
+        layout.addWidget(self.list_clipboard)
         return w
 
-    def _toggle_caffeine(self):
+    def _toggle_caffeine_click(self):
         if self.parent_bar:
             active = self.parent_bar.toggle_caffeine()
             if active:
-                self.btn_caffeine.setText("☕ 'Не спать': АКТИВНО (Экран не гаснет)")
-                self.btn_caffeine.setStyleSheet("background: rgba(10, 132, 255, 0.25); color: #0A84FF; border: 1px solid #0A84FF; border-radius: 10px; font-size: 11px; font-weight: bold;")
+                self.btn_caffeine.setText("☕ Не спать: ВКЛ")
+                self.btn_caffeine.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(10, 132, 255, 0.25);
+                        color: #0A84FF;
+                        border: 1px solid #0A84FF;
+                        border-radius: 10px;
+                        padding: 8px;
+                        font-size: 11px;
+                        font-weight: bold;
+                    }
+                """)
             else:
-                self.btn_caffeine.setText("☕ Режим 'Не спать' (Экран включён)")
-                self.btn_caffeine.setStyleSheet("background: rgba(255, 255, 255, 0.08); color: white; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; font-size: 11px; font-weight: 600;")
+                self.btn_caffeine.setText("☕ Не спать: Выкл")
+                self.btn_caffeine.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(255, 255, 255, 0.08);
+                        color: #FFFFFF;
+                        border: 1px solid rgba(255, 255, 255, 0.12);
+                        border-radius: 10px;
+                        padding: 8px;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+                """)
 
-    def _copy_back_to_clipboard(self, item):
-        txt = item.text().replace("• ", "")
-        QApplication.clipboard().setText(txt)
+    def _open_snipping_tool(self):
+        try:
+            os.system("start ms-screenclip:")
+        except Exception:
+            pass
+
+    def _copy_item_back(self, item):
+        text = item.text()
+        QApplication.clipboard().setText(text)
 
     def add_clipboard_item(self, text):
         clean = text.strip().replace("\n", " ")
-        if len(clean) > 42:
-            clean = clean[:40] + "…"
-        self.clip_list.insertItem(0, f"• {clean}")
-        if self.clip_list.count() > 6:
-            self.clip_list.takeItem(6)
+        if len(clean) > 35:
+            clean = clean[:33] + "…"
+        if self.list_clipboard.count() > 0 and self.list_clipboard.item(0).text() == clean:
+            return
+        self.list_clipboard.insertItem(0, clean)
+        if self.list_clipboard.count() > 10:
+            self.list_clipboard.takeItem(self.list_clipboard.count() - 1)
 
-    def show_tab(self, index, global_pos):
-        titles = ["Погода и Прогноз", "Apple Music", "Диспетчер задач", "Календарь и Задачи", "Инструменты"]
-        self.current_tab = index
-        self.lbl_flyout_title.setText(titles[index])
-        self.stack.setCurrentIndex(index)
+    # -------------------------------------------------------------------------
+    # Public Show Navigation
+    # -------------------------------------------------------------------------
+    def show_tab(self, tab_idx, global_trigger_pos=None):
+        self.current_tab = tab_idx
+        titles = {
+            0: "Погода",
+            1: "Музыка",
+            2: "Диспетчер задач",
+            3: "Календарь и Заметки",
+            4: "Инструменты"
+        }
+        title = titles.get(tab_idx, "Apple Status")
+        self.lbl_flyout_title.setText(title)
+        self.stack.setCurrentIndex(tab_idx)
+        self._update_tab_pills(tab_idx)
 
-        if index == 2:
-            self.update_task_manager()
+        if tab_idx == 2:
+            self.update_tasks_view()
+        elif tab_idx == 0:
+            if self.parent_bar:
+                self.input_city.setText(self.parent_bar.weather_city)
 
-        # Position right below clicked element
-        w = self.width()
-        x = global_pos.x() - w // 2
-        y = global_pos.y() + 24
+        # Position cleanly beneath trigger
+        if global_trigger_pos:
+            x = global_trigger_pos.x() - (self.width() // 2)
+            y = global_trigger_pos.y() + 10
+            screen = QApplication.primaryScreen()
+            if screen:
+                geom = screen.availableGeometry()
+                if x + self.width() > geom.right() - 8:
+                    x = geom.right() - self.width() - 8
+                if x < geom.left() + 8:
+                    x = geom.left() + 8
+            self.move(x, y)
 
-        screen = QApplication.primaryScreen()
-        if screen:
-            avail = screen.availableGeometry()
-            x = max(avail.left() + 10, min(avail.right() - w - 10, x))
-
-        self.move(x, y)
         self.show()
+        self.raise_()
+
+    def leaveEvent(self, event):
+        cursor = QCursor.pos()
+        if not self.rect().contains(self.mapFromGlobal(cursor)):
+            if self.parent_bar and not self.parent_bar.geometry().contains(cursor):
+                if hasattr(self.parent_bar, "flyout_leave_timer"):
+                    self.parent_bar.flyout_leave_timer.start(350)
+        super().leaveEvent(event)
 
     def paintEvent(self, event):
-        # Frosted glass drop-down background
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        w = float(self.width())
-        h = float(self.height())
-        r = 16.0
-
+        # macOS Liquid Frosted Glass Dark Fill
+        rect = QRectF(self.rect())
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0), r, r)
+        path.addRoundedRect(rect, 16, 16)
 
-        # Deep Acrylic dark glass
-        p.fillPath(path, QBrush(QColor(16, 18, 26, 235)))
-        p.strokePath(path, QPen(QColor(255, 255, 255, 30), 1.0))
+        painter.fillPath(path, QBrush(QColor(22, 22, 26, 240)))
+        pen = QPen(QColor(255, 255, 255, 30))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.drawPath(path)
 
 
 class AppleStatusBar(QWidget):
     """
     Apple-Grade Top-Right 100% Transparent Status Bar for Windows.
-    - 100% completely transparent island background.
+    - 100% completely transparent island background with DWM alpha=1 hit-testing.
     - Floating crisp typography with native drop-shadows.
-    - Auto-hides when idle, smoothly appears on hover.
-    - Modules: Weather, Music, PC Telemetry (CPU/RAM/AC), Tools, Date & Clock.
-    - Interactive click flyouts for every module!
-    - Scroll-to-control volume over music.
-    - Double click for media play/pause.
-    - Dynamic Island alerts on track change or high CPU.
+    - Physical slide-up animation: smoothly slides up off-screen when idle.
+    - Physical slide-down animation: smoothly slides down into view on hover near top edge.
+    - Full contiguous spatial click mapping (zero dead spots).
+    - Flyout auto-closes as soon as cursor leaves both the card and the bar.
+    - Real live weather for user's city via wttr.in with city switcher.
+    - Modules: Weather, Music, PC Telemetry (CPU/RAM), Tools, Date & Clock.
+    - Power / AC icon removed.
     """
+    media_updated = pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Apple Status Bar")
+        self.media_updated.connect(self._on_media_update)
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
@@ -503,35 +827,61 @@ class AppleStatusBar(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setMouseTracking(True)
 
-        # Settings
-        self.idle_opacity = 0.08
-        self.active_opacity = 0.98
+        # State
         self.is_hovered = False
+        self.is_slid_down = True
         self.caffeine_active = False
+
+        # Geometry positions
+        self.x_dock = 0
+        self.y_visible = 6
+        self.y_hidden = -31
 
         # Telemetry State
         self.cpu_pct = 0.0
         self.ram_pct = 0.0
-        self.battery_info = None
         self.music_title = "Нет активного трека"
         self.music_artist = ""
         self.is_playing = False
-        self.weather_temp = "+2°C"
 
-        # Opacity Animation
-        self.opacity_effect = QGraphicsOpacityEffect(self)
-        self.opacity_effect.setOpacity(self.active_opacity)
-        self.setGraphicsEffect(self.opacity_effect)
+        # Weather State
+        self.weather_city = self._load_weather_city()
+        self.weather_temp = "--°C"
+        self.weather_icon = "⛅"
+        self.weather_desc = "Загрузка..."
+        self.weather_worker = None
 
-        self.anim_opacity = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.anim_opacity.setDuration(220)
-        self.anim_opacity.setEasingCurve(QEasingCurve.Type.OutCubic)
+        # Position Animation (Physical Slide Up / Down)
+        self.anim_pos = QPropertyAnimation(self, b"pos")
+        self.anim_pos.setDuration(240)
+        self.anim_pos.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        # Auto-hide timer
+        # Auto-hide timer: slides up after 1.2s when idle
         self.hide_timer = QTimer(self)
         self.hide_timer.setSingleShot(True)
-        self.hide_timer.setInterval(1400)
-        self.hide_timer.timeout.connect(self._fade_to_idle)
+        self.hide_timer.setInterval(1200)
+        self.hide_timer.timeout.connect(self._slide_up)
+
+        # Flyout auto-close timer (350ms): closes flyout when cursor leaves flyout + bar
+        self.flyout_leave_timer = QTimer(self)
+        self.flyout_leave_timer.setSingleShot(True)
+        self.flyout_leave_timer.setInterval(350)
+        self.flyout_leave_timer.timeout.connect(self._on_flyout_leave_timeout)
+
+        # Start visible for 6 seconds on initial launch so user sees it, then slide up
+        QTimer.singleShot(6000, lambda: self._slide_up() if not self.is_hovered else None)
+
+        # Active hover polling timer (100ms) - checks top bezel hotspot, window rect, and flyout
+        self.hover_timer = QTimer(self)
+        self.hover_timer.setInterval(100)
+        self.hover_timer.timeout.connect(self._check_mouse_hover)
+        self.hover_timer.start()
+
+        # Weather refresh timer (every 20 minutes)
+        self.weather_timer = QTimer(self)
+        self.weather_timer.setInterval(20 * 60 * 1000)
+        self.weather_timer.timeout.connect(self._fetch_weather)
+        self.weather_timer.start()
 
         # Flyout Window
         self.flyout = AppleStatusFlyout(parent_bar=self)
@@ -552,13 +902,14 @@ class AppleStatusBar(QWidget):
         self.media_watcher = None
         if HAS_MEDIA:
             try:
-                self.media_watcher = WindowsMediaWatcher(on_update_callback=self._on_media_update)
+                self.media_watcher = WindowsMediaWatcher(on_update_callback=self.media_updated.emit)
             except Exception as e:
                 print(f"[AppleStatusBar] Media watcher note: {e}")
 
         self._build_ui()
         self._reposition_top_right()
         self._update_clock_and_telemetry()
+        self._fetch_weather()
 
     def _apply_shadow(self, widget):
         sh = QGraphicsDropShadowEffect(widget)
@@ -569,74 +920,60 @@ class AppleStatusBar(QWidget):
 
     def _build_ui(self):
         self.setFixedHeight(34)
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(500)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(14, 0, 14, 0)
         layout.setSpacing(10)
 
-        # 1. Weather Module (Clickable)
-        self.lbl_weather = QLabel(f"⛅ {self.weather_temp}", self)
+        # 1. Weather Module
+        self.lbl_weather = QLabel(f"{self.weather_icon} {self.weather_temp}", self)
         self.lbl_weather.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.lbl_weather.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 600;")
+        self.lbl_weather.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 600; padding: 2px 4px;")
         self._apply_shadow(self.lbl_weather)
-        self.lbl_weather.mousePressEvent = lambda e: self._open_flyout(0, self.lbl_weather)
         layout.addWidget(self.lbl_weather)
 
         layout.addWidget(self._create_separator())
 
-        # 2. Seamless Music Module (Clickable, Scrollable for Volume)
+        # 2. Seamless Music Module
         self.lbl_music = QLabel(f"🎵 {self.music_title}", self)
         self.lbl_music.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.lbl_music.setStyleSheet("color: #E2E8F0; font-size: 11px; font-weight: 500;")
+        self.lbl_music.setStyleSheet("color: #E2E8F0; font-size: 11px; font-weight: 500; padding: 2px 4px;")
         self.lbl_music.setMaximumWidth(210)
         self._apply_shadow(self.lbl_music)
-        self.lbl_music.mousePressEvent = lambda e: self._open_flyout(1, self.lbl_music)
         layout.addWidget(self.lbl_music)
 
         layout.addWidget(self._create_separator())
 
-        # 3. PC Telemetry Module (CPU & RAM) (Clickable)
+        # 3. PC Telemetry Module (CPU & RAM)
         self.lbl_cpu = QLabel("CPU --%", self)
         self.lbl_cpu.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.lbl_cpu.setStyleSheet("color: #30D158; font-size: 11px; font-weight: 700; font-family: 'Consolas', monospace;")
+        self.lbl_cpu.setStyleSheet("color: #30D158; font-size: 11px; font-weight: 700; font-family: 'Consolas', monospace; padding: 2px 3px;")
         self._apply_shadow(self.lbl_cpu)
-        self.lbl_cpu.mousePressEvent = lambda e: self._open_flyout(2, self.lbl_cpu)
         layout.addWidget(self.lbl_cpu)
 
         self.lbl_ram = QLabel("RAM --%", self)
         self.lbl_ram.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.lbl_ram.setStyleSheet("color: #64D2FF; font-size: 11px; font-weight: 700; font-family: 'Consolas', monospace;")
+        self.lbl_ram.setStyleSheet("color: #64D2FF; font-size: 11px; font-weight: 700; font-family: 'Consolas', monospace; padding: 2px 3px;")
         self._apply_shadow(self.lbl_ram)
-        self.lbl_ram.mousePressEvent = lambda e: self._open_flyout(2, self.lbl_ram)
         layout.addWidget(self.lbl_ram)
 
         layout.addWidget(self._create_separator())
 
-        # 4. Power / Battery
-        self.lbl_power = QLabel("⚡ AC", self)
-        self.lbl_power.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 600;")
-        self._apply_shadow(self.lbl_power)
-        layout.addWidget(self.lbl_power)
-
-        layout.addWidget(self._create_separator())
-
-        # 5. Quick Tools (Caffeine & Tools)
+        # 4. Quick Tools (Caffeine & Tools)
         self.lbl_tools = QLabel("☕", self)
         self.lbl_tools.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.lbl_tools.setStyleSheet("color: #FFFFFF; font-size: 12px;")
+        self.lbl_tools.setStyleSheet("color: #FFFFFF; font-size: 12px; padding: 2px 6px;")
         self._apply_shadow(self.lbl_tools)
-        self.lbl_tools.mousePressEvent = lambda e: self._open_flyout(4, self.lbl_tools)
         layout.addWidget(self.lbl_tools)
 
         layout.addWidget(self._create_separator())
 
-        # 6. Calendar & Clock (Clickable)
+        # 5. Calendar & Clock
         self.lbl_clock = QLabel("12:00", self)
         self.lbl_clock.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.lbl_clock.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700; font-family: 'SF Pro Display', 'Segoe UI', sans-serif;")
+        self.lbl_clock.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700; font-family: 'SF Pro Display', 'Segoe UI', sans-serif; padding: 2px 6px;")
         self._apply_shadow(self.lbl_clock)
-        self.lbl_clock.mousePressEvent = lambda e: self._open_flyout(3, self.lbl_clock)
         layout.addWidget(self.lbl_clock)
 
     def _create_separator(self):
@@ -648,24 +985,201 @@ class AppleStatusBar(QWidget):
         sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.20); border: none;")
         return sep
 
+    # -------------------------------------------------------------------------
+    # Full Spatial Click Dispatcher across Bar
+    # -------------------------------------------------------------------------
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position().toPoint()
+            # 1. Weather: from left edge to music x
+            if pos.x() < self.lbl_music.x():
+                self._open_flyout(0, self.lbl_weather)
+            # 2. Music: from music x to CPU x
+            elif pos.x() >= self.lbl_music.x() and pos.x() < self.lbl_cpu.x():
+                self._open_flyout(1, self.lbl_music)
+            # 3. CPU & RAM: from CPU x to tools x
+            elif pos.x() >= self.lbl_cpu.x() and pos.x() < self.lbl_tools.x():
+                self._open_flyout(2, self.lbl_cpu)
+            # 4. Tools (☕): from tools x to clock x
+            elif pos.x() >= self.lbl_tools.x() and pos.x() < self.lbl_clock.x():
+                self._open_flyout(4, self.lbl_tools)
+            # 5. Calendar & Clock: from clock x to right edge
+            else:
+                self._open_flyout(3, self.lbl_clock)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position().toPoint()
+            # Only double-click over the music area triggers play/pause
+            if pos.x() >= self.lbl_music.x() and pos.x() < self.lbl_cpu.x():
+                user32.keybd_event(VK_MEDIA_PLAY_PAUSE, 0, 0, 0)
+                user32.keybd_event(VK_MEDIA_PLAY_PAUSE, 0, 2, 0)
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
+
+    # -------------------------------------------------------------------------
+    # Weather Management
+    # -------------------------------------------------------------------------
+    def _load_weather_city(self) -> str:
+        try:
+            cfg = os.path.join(os.path.dirname(__file__), "weather_config.json")
+            if os.path.exists(cfg):
+                with open(cfg, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data.get("city", "Москва")
+        except Exception:
+            pass
+        return "Москва"
+
+    def _save_weather_city(self, city: str):
+        try:
+            cfg = os.path.join(os.path.dirname(__file__), "weather_config.json")
+            with open(cfg, "w", encoding="utf-8") as f:
+                json.dump({"city": city}, f, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def set_custom_city(self, city: str):
+        self.weather_city = city
+        self._save_weather_city(city)
+        self._fetch_weather()
+
+    def _fetch_weather(self):
+        if self.weather_worker and self.weather_worker.isRunning():
+            return
+        self.weather_worker = WeatherWorker(city=self.weather_city)
+        self.weather_worker.weather_fetched.connect(self._on_weather_fetched)
+        self.weather_worker.start()
+
+    def _on_weather_fetched(self, data: dict):
+        self.weather_icon = data.get("icon", "⛅")
+        self.weather_temp = data.get("temp", "+2°C")
+        self.weather_desc = data.get("desc", "Ясно")
+        self.weather_city = data.get("city", self.weather_city)
+
+        self.lbl_weather.setText(f"{self.weather_icon} {self.weather_temp}")
+
+        # Update Flyout Weather Page
+        self.flyout.lbl_w_icon.setText(self.weather_icon)
+        self.flyout.lbl_w_temp.setText(self.weather_temp)
+        self.flyout.lbl_w_desc.setText(f"{self.weather_desc} · {self.weather_city}")
+        self.flyout.lbl_w_hum.setText(f"💧 Влажность\n{data.get('humidity', '--%')}")
+        self.flyout.lbl_w_wind.setText(f"💨 Ветер\n{data.get('wind', '-- м/с')}")
+        self.flyout.input_city.setText(self.weather_city)
+
+        self._reposition_top_right()
+
+    # -------------------------------------------------------------------------
+    # Flyout Opening & Auto-Hide
+    # -------------------------------------------------------------------------
     def _open_flyout(self, tab_idx, trigger_widget):
+        # Toggle hide if already open on same tab
         if self.flyout.isVisible() and self.flyout.current_tab == tab_idx:
             self.flyout.hide()
             return
+        if not self.is_slid_down:
+            self._slide_down()
+        self.hide_timer.stop()
+        self.flyout_leave_timer.stop()
         gpos = trigger_widget.mapToGlobal(QPoint(trigger_widget.width() // 2, trigger_widget.height()))
         self.flyout.show_tab(tab_idx, gpos)
 
+    def _on_flyout_leave_timeout(self):
+        cursor = QCursor.pos()
+        in_flyout = self.flyout.isVisible() and self.flyout.geometry().contains(cursor)
+        in_bar = self.geometry().contains(cursor)
+        if not (in_flyout or in_bar):
+            self.flyout.hide()
+            if self.is_slid_down and not self.hide_timer.isActive():
+                self.hide_timer.start()
+
+    # -------------------------------------------------------------------------
+    # Positioning & Slide Up/Down Mechanics
+    # -------------------------------------------------------------------------
     def _reposition_top_right(self):
         screen = QApplication.primaryScreen()
         if screen:
             avail = screen.availableGeometry()
             self.adjustSize()
-            w = max(560, self.sizeHint().width() + 20)
+            w = max(500, self.sizeHint().width() + 20)
             self.setFixedWidth(w)
-            x = avail.right() - w - 12
-            y = avail.top() + 6
-            self.move(x, y)
+            self.x_dock = avail.right() - w - 16
+            self.y_visible = avail.top() + 6
+            self.y_hidden = avail.top() - self.height() + 3
+            current_y = self.y_visible if self.is_slid_down else self.y_hidden
+            self.move(self.x_dock, current_y)
 
+    def _slide_down(self):
+        if self.is_slid_down:
+            return
+        self.is_slid_down = True
+        self.is_hovered = True
+        self.anim_pos.stop()
+        self.anim_pos.setStartValue(self.pos())
+        self.anim_pos.setEndValue(QPoint(self.x_dock, self.y_visible))
+        self.anim_pos.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.anim_pos.setDuration(240)
+        self.anim_pos.start()
+
+    def _slide_up(self):
+        if not self.is_slid_down:
+            return
+        if self.flyout.isVisible():
+            return
+        self.is_slid_down = False
+        self.is_hovered = False
+        self.anim_pos.stop()
+        self.anim_pos.setStartValue(self.pos())
+        self.anim_pos.setEndValue(QPoint(self.x_dock, self.y_hidden))
+        self.anim_pos.setEasingCurve(QEasingCurve.Type.InCubic)
+        self.anim_pos.setDuration(280)
+        self.anim_pos.start()
+
+    def _check_mouse_hover(self):
+        cursor = QCursor.pos()
+        # Top-right hover hotspot: top edge of screen above bar or within bar bounds
+        in_top_bezel = (cursor.y() <= 6 and cursor.x() >= (self.x() - 40) and cursor.x() <= (self.x() + self.width() + 40))
+        in_bar = self.geometry().contains(cursor)
+        in_flyout = self.flyout.isVisible() and self.flyout.geometry().contains(cursor)
+
+        # 1. Flyout Auto-Hide: when cursor leaves BOTH flyout and bar
+        if self.flyout.isVisible():
+            if in_flyout or in_bar:
+                self.flyout_leave_timer.stop()
+            else:
+                if not self.flyout_leave_timer.isActive():
+                    self.flyout_leave_timer.start()
+
+        # 2. Bar Slide-Up: when cursor leaves everything
+        if in_top_bezel or in_bar or in_flyout:
+            self.hide_timer.stop()
+            if not self.is_slid_down:
+                self._slide_down()
+        else:
+            if self.is_slid_down and not self.flyout.isVisible() and not self.hide_timer.isActive():
+                self.hide_timer.start()
+
+    def enterEvent(self, event):
+        self.hide_timer.stop()
+        self._slide_down()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        cursor = QCursor.pos()
+        if self.rect().contains(self.mapFromGlobal(cursor)):
+            super().leaveEvent(event)
+            return
+        if not self.flyout.isVisible():
+            self.hide_timer.start()
+        super().leaveEvent(event)
+
+    # -------------------------------------------------------------------------
+    # Telemetry Updates
+    # -------------------------------------------------------------------------
     def _update_clock_and_telemetry(self):
         now = datetime.datetime.now()
         weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -683,20 +1197,9 @@ class AppleStatusBar(QWidget):
 
         # Dynamic High CPU warning pulse
         if self.cpu_pct > 80:
-            self.lbl_cpu.setStyleSheet("color: #FF453A; font-size: 11px; font-weight: 800; font-family: 'Consolas', monospace;")
+            self.lbl_cpu.setStyleSheet("color: #FF453A; font-size: 11px; font-weight: 800; font-family: 'Consolas', monospace; padding: 2px 3px;")
         else:
-            self.lbl_cpu.setStyleSheet("color: #30D158; font-size: 11px; font-weight: 700; font-family: 'Consolas', monospace;")
-
-        # Battery / AC
-        batt = psutil.sensors_battery()
-        if batt:
-            pct = int(batt.percent)
-            plugged = "⚡ " if batt.power_plugged else ""
-            self.lbl_power.setText(f"{plugged}{pct}%")
-        else:
-            self.lbl_power.setText("⚡ AC")
-
-        self.lbl_weather.setText(f"⛅ {self.weather_temp}")
+            self.lbl_cpu.setStyleSheet("color: #30D158; font-size: 11px; font-weight: 700; font-family: 'Consolas', monospace; padding: 2px 3px;")
 
     def _on_media_update(self, state):
         if state and state.is_active and state.title:
@@ -728,17 +1231,16 @@ class AppleStatusBar(QWidget):
         self.caffeine_active = not self.caffeine_active
         if self.caffeine_active:
             kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
-            self.lbl_tools.setStyleSheet("color: #0A84FF; font-size: 12px; font-weight: bold;")
+            self.lbl_tools.setStyleSheet("color: #0A84FF; font-size: 12px; font-weight: bold; padding: 2px 6px;")
         else:
             kernel32.SetThreadExecutionState(ES_CONTINUOUS)
-            self.lbl_tools.setStyleSheet("color: #FFFFFF; font-size: 12px;")
+            self.lbl_tools.setStyleSheet("color: #FFFFFF; font-size: 12px; padding: 2px 6px;")
         return self.caffeine_active
 
     # -------------------------------------------------------------------------
     # Scroll-to-Control & Gestures
     # -------------------------------------------------------------------------
     def wheelEvent(self, event: QWheelEvent):
-        # Adjust volume on scroll anywhere over bar
         delta = event.angleDelta().y()
         if delta > 0:
             user32.keybd_event(VK_VOLUME_UP, 0, 0, 0)
@@ -748,47 +1250,61 @@ class AppleStatusBar(QWidget):
             user32.keybd_event(VK_VOLUME_DOWN, 0, 2, 0)
         event.accept()
 
-    def mouseDoubleClickEvent(self, event: QMouseEvent):
-        # Play/Pause on double click
-        user32.keybd_event(VK_MEDIA_PLAY_PAUSE, 0, 0, 0)
-        user32.keybd_event(VK_MEDIA_PLAY_PAUSE, 0, 2, 0)
-        event.accept()
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background: rgba(28, 28, 32, 0.95);
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 14px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background: #0A84FF;
+            }
+        """)
+        act_weather = QAction("⛅ Прогноз погоды", self)
+        act_weather.triggered.connect(lambda: self._open_flyout(0, self.lbl_weather))
+        menu.addAction(act_weather)
 
-    # -------------------------------------------------------------------------
-    # Auto-Hide on Hover Mechanics
-    # -------------------------------------------------------------------------
-    def enterEvent(self, event):
-        self.hide_timer.stop()
-        self._fade_to_active()
-        super().enterEvent(event)
+        act_music = QAction("🎵 Музыкальный плеер", self)
+        act_music.triggered.connect(lambda: self._open_flyout(1, self.lbl_music))
+        menu.addAction(act_music)
 
-    def leaveEvent(self, event):
-        # Don't auto-hide if flyout dropdown is currently open
-        if not self.flyout.isVisible():
-            self.hide_timer.start()
-        super().leaveEvent(event)
+        act_tasks = QAction("⚡ Диспетчер задач", self)
+        act_tasks.triggered.connect(lambda: self._open_flyout(2, self.lbl_cpu))
+        menu.addAction(act_tasks)
 
-    def _fade_to_active(self):
-        self.is_hovered = True
-        self.anim_opacity.stop()
-        self.anim_opacity.setStartValue(self.opacity_effect.opacity())
-        self.anim_opacity.setEndValue(self.active_opacity)
-        self.anim_opacity.start()
+        act_calendar = QAction("📅 Календарь и Заметки", self)
+        act_calendar.triggered.connect(lambda: self._open_flyout(3, self.lbl_clock))
+        menu.addAction(act_calendar)
 
-    def _fade_to_idle(self):
-        self.is_hovered = False
-        self.anim_opacity.stop()
-        self.anim_opacity.setStartValue(self.opacity_effect.opacity())
-        self.anim_opacity.setEndValue(self.idle_opacity)
-        self.anim_opacity.start()
+        act_caffeine = QAction("☕ Режим Не спать (Caffeine)", self)
+        act_caffeine.triggered.connect(self.toggle_caffeine)
+        menu.addAction(act_caffeine)
+
+        menu.addSeparator()
+
+        act_quit = QAction("✕ Закрыть статус-бар", self)
+        act_quit.triggered.connect(QApplication.instance().quit)
+        menu.addAction(act_quit)
+
+        menu.exec(event.globalPos())
 
     def paintEvent(self, event):
-        # 100% Completely Transparent Island: zero background fill, zero box border!
-        pass
+        # 100% Completely Transparent Island, but alpha=1 allows Windows DWM hit-testing
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
     bar = AppleStatusBar()
     bar.show()
     sys.exit(app.exec())
